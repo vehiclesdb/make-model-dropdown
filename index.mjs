@@ -2,7 +2,7 @@
 // tags, CommonJS and bundlers without a build step); importing it for its
 // side effect defines the global, which this module re-exports as a proper
 // default export.
-import "./vehicles-dropdown.js"
+import "./make-model-dropdown.js"
 
 const VehiclesDropdown = globalThis.VehiclesDropdown
 export default VehiclesDropdown
