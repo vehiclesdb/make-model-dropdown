@@ -20,6 +20,9 @@
     kind: null,            // "car" | "motorcycle" | "moped" | "van" | "truck" | "bus"
     country: null,         // two-letter code, e.g. "de"
     order: "popular",      // "popular" | "alphabetical" (models)
+    topMakes: null,        // e.g. 40 — only the N most-registered makes, best first
+    initialMake: null,     // slug (or name) preselected on load, e.g. "audi"
+    initialModel: null,    // slug (or name) preselected once its make's models load
     values: "slug",        // what option values hold: "slug" | "name"
     includeOther: false,   // append an "Other / not listed" escape hatch
     logos: false,          // render make logos (combobox mode only)
@@ -78,6 +81,10 @@
     const params = new URLSearchParams()
     if (config.kind) params.set("kind", config.kind)
     if (config.country) params.set("country", config.country)
+    if (config.topMakes) {
+      params.set("order", "popular")
+      params.set("limit", config.topMakes)
+    }
     const s = params.toString()
     return s ? `?${s}` : ""
   }
@@ -160,6 +167,18 @@
         fillSelect(this.makeSelect, this.config.placeholderMake, data.makes, this.config)
         if (this.config.includeOther) appendOther(this.makeSelect)
         if (this.combobox) this.combobox.setItems(data.makes)
+
+        // The preselected make (slug or name, forgiving): set the form value
+        // and let the combobox show the name and the badge.
+        if (this.config.initialMake && !this.makeSelect.value) {
+          const wanted = this.config.initialMake
+          const item = data.makes.find((m) => m.slug === wanted || m.name === wanted)
+          if (item) {
+            this.makeSelect.value = optionValue(this.config, item)
+            this.combobox?.display(item)
+          }
+        }
+
         if (this.makeSelect.value) this.makeChanged()
       } catch (error) {
         this.fail(error)
@@ -191,6 +210,18 @@
         if (this.destroyed || this.makeSelect.value !== makeValue) return
         fillSelect(this.modelSelect, this.config.placeholderModel, data.models, this.config, "")
         if (this.config.includeOther) appendOther(this.modelSelect)
+
+        // The preselected model, applied exactly once — after that the person
+        // is driving, and a make change must reset the model like always.
+        if (this.config.initialModel && !this.initialModelApplied) {
+          this.initialModelApplied = true
+          const wanted = this.config.initialModel
+          const match = data.models.find((m) => m.slug === wanted || m.name === wanted)
+          if (match) {
+            this.modelSelect.value = optionValue(this.config, match)
+            this.notify()
+          }
+        }
       } catch (error) {
         this.fail(error)
       }
@@ -219,7 +250,9 @@
       input.setAttribute("aria-controls", listId)
       input.placeholder = this.config.placeholderMake
       input.autocomplete = "off"
-      input.className = "vdb-combobox-input"
+      // Inherit the host select's classes, so the combobox wears whatever the
+      // page's forms wear — Tailwind, Bootstrap, hand-rolled CSS, anything.
+      input.className = `vdb-combobox-input ${select.className}`.trim()
 
       const list = document.createElement("ul")
       list.id = listId
@@ -237,6 +270,35 @@
       let shown = []   // the item behind each rendered row, by index
       let active = -1  // index into `shown`
       let open = false
+
+      // The selected make's badge INSIDE the input — the flag treatment
+      // (intl-tel-input's move). Logos mode only; the chip fallback keeps
+      // the slot honest for uncovered marques.
+      let adornment = null
+      if (this.config.logos) {
+        adornment = document.createElement("span")
+        adornment.className = "vdb-combobox-adornment"
+        adornment.style.cssText = "position:absolute;left:.875rem;top:50%;transform:translateY(-50%);" +
+          "display:none;pointer-events:none;line-height:0;"
+        wrap.append(adornment)
+      }
+
+      function showSelected(item) {
+        input.value = item.name
+        if (!adornment) return
+        adornment.style.display = "inline-flex"
+        input.style.paddingLeft = "2.75rem"
+        adornment.replaceChildren(chip(item.name))
+        if (item.value) return // the escape-hatch row has no logo to fetch
+        fetchLogo(self.api, self.config.key, item.slug).then((url) => {
+          if (!url || input.value !== item.name) return
+          const img = document.createElement("img")
+          img.src = url
+          img.alt = ""
+          img.style.cssText = "width:1.375rem;height:1.375rem;object-fit:contain;"
+          adornment.replaceChildren(img)
+        })
+      }
 
       function close() {
         open = false; active = -1
@@ -261,7 +323,7 @@
       }
 
       function choose(item) {
-        input.value = item.name
+        showSelected(item)
         // The escape-hatch row carries its own fixed value ("other");
         // real makes answer to the configured values mode.
         select.value = item.value !== undefined ? item.value : optionValue(self.config, item)
@@ -333,6 +395,7 @@
 
       this.combobox = {
         setItems(next) { items = next },
+        display(item) { showSelected(item) },
         destroy() { wrap.replaceWith(select); select.style.display = "" }
       }
     }

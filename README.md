@@ -49,6 +49,9 @@ VehiclesDropdown.attach({
   kind: "car",             // only one kind: car, motorcycle, moped, van, truck, bus
   country: "de",           // only vehicles evidenced in a register country
   order: "popular",        // models by real-world registrations (default) or "alphabetical"
+  topMakes: 40,            // only the N most-registered makes, best first (default: all)
+  initialMake: "audi",     // preselect a make on load (slug or name)
+  initialModel: "a3",      // preselect a model once its make's models load
   values: "slug",          // option values: "slug" (default) or "name"
   includeOther: true,      // append "Other / not listed" — pickers should never dead-end
 
@@ -68,7 +71,9 @@ VehiclesDropdown.attach({
 
 ### Logos
 
-With `logos: true` (in search mode) each make renders its badge next to its name. Coverage is partial by design and any marque can be withdrawn at any time, so the library always falls back to an initial-letter chip — build nothing that assumes a logo exists. Logos are third-party trademarks served for referential display; no license is granted with them.
+With `logos: true` (in search mode) each make renders its badge next to its name in the list, and the selected make's badge sits inside the input, the way a phone input wears its country flag. Coverage is partial by design and any marque can be withdrawn at any time, so the library always falls back to an initial-letter chip — build nothing that assumes a logo exists. Logos are third-party trademarks served for referential display; no license is granted with them.
+
+The combobox input inherits your `<select>`'s CSS classes, so it dresses like the rest of your form with no extra styling.
 
 ### Popularity, availability, kinds
 
