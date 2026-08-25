@@ -42,11 +42,23 @@
   function resolveEl(elOrSelector, name) {
     const el = typeof elOrSelector === "string" ? document.querySelector(elOrSelector) : elOrSelector
     if (!el) throw new Error(`VehiclesDropdown: ${name} element not found`)
+    if (el.tagName !== "SELECT" || el.multiple) {
+      throw new Error(`VehiclesDropdown: ${name} must be a single-select <select> element`)
+    }
     return el
   }
 
-  async function fetchJSON(url, key) {
-    if (jsonCache.has(url)) return jsonCache.get(url)
+  function requestCacheKey(url, key) {
+    return JSON.stringify([url, key])
+  }
+
+  function logoURL(apiBase, slug) {
+    return `${apiBase}/makes/${encodeURIComponent(slug)}/logo?variant=emblem`
+  }
+
+  async function fetchJSON(url, key, collection) {
+    const cacheKey = requestCacheKey(url, key)
+    if (jsonCache.has(cacheKey)) return jsonCache.get(cacheKey)
     const promise = fetch(url, { headers: { Authorization: `Bearer ${key}` } }).then(async (response) => {
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
@@ -55,25 +67,36 @@
         error.code = body.error
         throw error
       }
-      return response.json()
+      const body = await response.json()
+      const items = body && body[collection]
+      if (!Array.isArray(items) || items.some((item) =>
+        !item || typeof item.name !== "string" || typeof item.slug !== "string")) {
+        throw new Error(`VehiclesDB API returned malformed ${collection} data`)
+      }
+      return body
     })
-    jsonCache.set(url, promise)
-    promise.catch(() => jsonCache.delete(url))
+    jsonCache.set(cacheKey, promise)
+    promise.catch(() => jsonCache.delete(cacheKey))
     return promise
   }
 
   // Logos need the Authorization header, and an <img src> cannot send one —
-  // so fetch to a blob URL, once per make per pageview. A 404 is a normal
-  // answer (partial coverage by design): cache the miss and render the chip.
-  async function fetchLogo(apiBase, key, slug) {
-    if (logoCache.has(slug)) return logoCache.get(slug)
-    const promise = fetch(`${apiBase}/makes/${encodeURIComponent(slug)}/logo?variant=emblem`, {
+  // so fetch each Blob once per API/key pair. Object URLs belong to an
+  // instance, though: destroy() revokes them instead of leaking page-lifetime
+  // browser resources. A 404 is a normal, cacheable miss.
+  async function fetchLogoBlob(apiBase, key, slug) {
+    const url = logoURL(apiBase, slug)
+    const cacheKey = requestCacheKey(url, key)
+    if (logoCache.has(cacheKey)) return logoCache.get(cacheKey)
+    const promise = fetch(url, {
       headers: { Authorization: `Bearer ${key}` }
     }).then(async (response) => {
-      if (!response.ok) return null
-      return URL.createObjectURL(await response.blob())
-    }).catch(() => null)
-    logoCache.set(slug, promise)
+      if (response.status === 404) return null
+      if (!response.ok) throw new Error(`VehiclesDB logo API answered ${response.status}`)
+      return response.blob()
+    })
+    logoCache.set(cacheKey, promise)
+    promise.catch(() => logoCache.delete(cacheKey))
     return promise
   }
 
@@ -95,10 +118,10 @@
 
   function fillSelect(select, placeholder, items, config, selected) {
     const previous = selected !== undefined ? selected : select.value
-    select.replaceChildren(new Option(placeholder, ""))
+    select.replaceChildren(new Option(placeholder, "", previous === "", previous === ""))
     for (const item of items) {
       const value = optionValue(config, item)
-      select.add(new Option(item.name, value, false, value === previous))
+      select.add(new Option(item.name, value, value === previous, value === previous))
     }
   }
 
@@ -137,16 +160,42 @@
   class Instance {
     constructor(options) {
       this.config = Object.assign({}, DEFAULTS, options)
-      if (!this.config.key) throw new Error("VehiclesDropdown: pass your publishable API key as `key` (get one free at https://vehiclesdb.com)")
+      if (typeof this.config.key !== "string" || !this.config.key.trim()) {
+        throw new Error("VehiclesDropdown: pass your publishable API key as `key` (get one free at https://vehiclesdb.com)")
+      }
 
       this.makeSelect = resolveEl(this.config.make, "make")
       this.modelSelect = this.config.model ? resolveEl(this.config.model, "model") : null
+      if (this.modelSelect === this.makeSelect) {
+        throw new Error("VehiclesDropdown: make and model must be different <select> elements")
+      }
+      if (!this.config.initialModel && this.modelSelect?.value) {
+        this.config.initialModel = this.modelSelect.value
+      }
       this.destroyed = false
+      this.logoUrls = new Map()
+      this.objectUrls = new Set()
 
-      this.handleMakeChange = () => { this.makeChanged() }
+      this.handleMakeChange = () => {
+        this.combobox?.sync()
+        this.makeChanged()
+      }
       this.handleModelChange = () => { this.notify() }
       this.makeSelect.addEventListener("change", this.handleMakeChange)
       if (this.modelSelect) this.modelSelect.addEventListener("change", this.handleModelChange)
+      this.form = this.makeSelect.form
+      this.handleFormReset = () => {
+        // The reset event fires before the browser restores form controls.
+        // Wait one task, then rebuild the dependent options for the restored
+        // make and reapply the configured/server-rendered initial model.
+        setTimeout(() => {
+          if (this.destroyed) return
+          this.initialModelApplied = false
+          this.combobox?.sync()
+          this.makeChanged()
+        }, 0)
+      }
+      this.form?.addEventListener("reset", this.handleFormReset)
 
       if (this.config.search || this.config.logos) this.enhance()
       if (this.config.attribution) {
@@ -161,7 +210,7 @@
 
     async loadMakes() {
       try {
-        const data = await fetchJSON(`${this.api}/makes${query(this.config)}`, this.config.key)
+        const data = await fetchJSON(`${this.api}/makes${query(this.config)}`, this.config.key, "makes")
         if (this.destroyed) return
         this.makes = data.makes
         fillSelect(this.makeSelect, this.config.placeholderMake, data.makes, this.config)
@@ -175,13 +224,18 @@
           const item = data.makes.find((m) => m.slug === wanted || m.name === wanted)
           if (item) {
             this.makeSelect.value = optionValue(this.config, item)
+            Array.from(this.makeSelect.options).forEach((option) => {
+              option.defaultSelected = option.value === this.makeSelect.value
+            })
             this.combobox?.display(item)
           }
         }
 
+        this.combobox?.sync()
+
         if (this.makeSelect.value) this.makeChanged()
       } catch (error) {
-        this.fail(error)
+        if (!this.destroyed) this.fail(error)
       }
     }
 
@@ -194,6 +248,7 @@
         fillSelect(this.modelSelect, this.config.placeholderModel, [], this.config, "")
       }
       this.notify()
+      if (this.destroyed) return
       if (!this.modelSelect) return
 
       const makeValue = this.makeSelect.value
@@ -212,25 +267,47 @@
         if (this.config.country) params.set("country", this.config.country)
         if (this.config.order === "popular") params.set("order", "popular")
         const url = `${this.api}/makes/${encodeURIComponent(slug)}/models?${params}`
-        const data = await fetchJSON(url, this.config.key)
+        const data = await fetchJSON(url, this.config.key, "models")
         if (this.destroyed || this.makeSelect.value !== makeValue) return
         fillSelect(this.modelSelect, this.config.placeholderModel, data.models, this.config, "")
         if (this.config.includeOther) appendOther(this.modelSelect)
 
         // The preselected model, applied exactly once — after that the person
         // is driving, and a make change must reset the model like always.
-        if (this.config.initialModel && !this.initialModelApplied) {
+        const intendedInitialMake = !this.config.initialMake ||
+          make?.slug === this.config.initialMake || make?.name === this.config.initialMake
+        if (this.config.initialModel && !this.initialModelApplied && intendedInitialMake) {
           this.initialModelApplied = true
           const wanted = this.config.initialModel
           const match = data.models.find((m) => m.slug === wanted || m.name === wanted)
           if (match) {
             this.modelSelect.value = optionValue(this.config, match)
+            Array.from(this.modelSelect.options).forEach((option) => {
+              option.defaultSelected = option.value === this.modelSelect.value
+            })
             this.notify()
           }
         }
       } catch (error) {
-        this.fail(error)
+        if (!this.destroyed && this.makeSelect.value === makeValue) this.fail(error)
       }
+    }
+
+    async logoUrl(slug) {
+      const cacheKey = requestCacheKey(logoURL(this.api, slug), this.config.key)
+      if (this.logoUrls.has(cacheKey)) return this.logoUrls.get(cacheKey)
+
+      const promise = fetchLogoBlob(this.api, this.config.key, slug).then((blob) => {
+        if (!blob || this.destroyed) return null
+        const url = URL.createObjectURL(blob)
+        this.objectUrls.add(url)
+        return url
+      }).catch(() => {
+        this.logoUrls.delete(cacheKey)
+        return null
+      })
+      this.logoUrls.set(cacheKey, promise)
+      return promise
     }
 
     // The searchable combobox: a text input + ARIA listbox layered over the
@@ -245,6 +322,7 @@
       wrap.className = "vdb-combobox"
       wrap.style.cssText = "position:relative;"
       select.insertAdjacentElement("beforebegin", wrap)
+      const originalDisplay = select.style.display
       select.style.display = "none"
       wrap.append(select)
 
@@ -256,9 +334,27 @@
       input.setAttribute("aria-controls", listId)
       input.placeholder = this.config.placeholderMake
       input.autocomplete = "off"
+      const originalRequired = select.required
+      select.required = false
+      input.required = originalRequired
+      input.disabled = select.disabled
       // Inherit the host select's classes, so the combobox wears whatever the
       // page's forms wear — Tailwind, Bootstrap, hand-rolled CSS, anything.
       input.className = `vdb-combobox-input ${select.className}`.trim()
+      if (select.getAttribute("aria-label")) input.setAttribute("aria-label", select.getAttribute("aria-label"))
+      if (select.getAttribute("aria-labelledby")) input.setAttribute("aria-labelledby", select.getAttribute("aria-labelledby"))
+      if (select.getAttribute("aria-describedby")) input.setAttribute("aria-describedby", select.getAttribute("aria-describedby"))
+      if (select.getAttribute("aria-invalid")) input.setAttribute("aria-invalid", select.getAttribute("aria-invalid"))
+
+      // Keep explicit <label for="make"> elements useful after enhancement.
+      // The original select keeps its id for form code and selectors; labels
+      // point at the visible input until destroy() restores them.
+      const inputId = select.id ? `${select.id}--vdb-combobox` : `${listId}-input`
+      input.id = inputId
+      const labels = select.id
+        ? Array.from(select.ownerDocument.querySelectorAll("label[for]")).filter((label) => label.htmlFor === select.id)
+        : []
+      labels.forEach((label) => { label.htmlFor = inputId })
 
       const list = document.createElement("ul")
       list.id = listId
@@ -276,6 +372,7 @@
       let shown = []   // the item behind each rendered row, by index
       let active = -1  // index into `shown`
       let open = false
+      let blurTimer = null
 
       // The selected make's badge INSIDE the input — the flag treatment
       // (intl-tel-input's move). Logos mode only; the chip fallback keeps
@@ -296,7 +393,7 @@
         input.style.paddingLeft = "2.75rem"
         adornment.replaceChildren(chip(item.name))
         if (item.value) return // the escape-hatch row has no logo to fetch
-        fetchLogo(self.api, self.config.key, item.slug).then((url) => {
+        self.logoUrl(item.slug).then((url) => {
           if (!url || input.value !== item.name) return
           const img = document.createElement("img")
           img.src = url
@@ -350,7 +447,7 @@
         if (self.config.logos && !item.value) {
           const holder = chip(item.name)
           li.append(holder)
-          fetchLogo(self.api, self.config.key, item.slug).then((url) => {
+          self.logoUrl(item.slug).then((url) => {
             if (!url) return
             const img = document.createElement("img")
             img.src = url
@@ -382,37 +479,99 @@
         shown.length ? openList() : close()
       }
 
-      input.addEventListener("input", () => render(input.value))
-      input.addEventListener("focus", () => render(input.value))
-      input.addEventListener("blur", () => setTimeout(close, 100))
+      function selectedItem() {
+        if (select.value === "other" && self.config.includeOther) {
+          return { name: "Other / not listed", value: "other" }
+        }
+        return items.find((item) => optionValue(self.config, item) === select.value)
+      }
+
+      function restoreSelected() {
+        const item = selectedItem()
+        if (item) showSelected(item)
+        else {
+          input.value = ""
+          if (adornment) {
+            adornment.style.display = "none"
+            adornment.replaceChildren()
+            input.style.paddingLeft = ""
+          }
+        }
+        syncValidity()
+      }
+
+      function syncValidity() {
+        if (!originalRequired) return
+        const item = selectedItem()
+        input.setCustomValidity(item && input.value === item.name ? "" : "Please select a vehicle make.")
+      }
+
+      input.addEventListener("input", () => { render(input.value); syncValidity() })
+      input.addEventListener("focus", () => {
+        if (blurTimer) clearTimeout(blurTimer)
+        input.select()
+        render("")
+      })
+      input.addEventListener("blur", () => {
+        blurTimer = setTimeout(() => { restoreSelected(); close() }, 100)
+      })
       input.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") return close()
+        if (event.key === "Escape") {
+          event.preventDefault()
+          restoreSelected()
+          return close()
+        }
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault()
-          if (!open) return render(input.value)
           const delta = event.key === "ArrowDown" ? 1 : -1
-          return setActive((active + delta + shown.length) % shown.length)
+          if (!open) {
+            render(input.value)
+            if (shown.length) setActive(delta > 0 ? 0 : shown.length - 1)
+            return
+          }
+          const next = active < 0 ? (delta > 0 ? 0 : shown.length - 1) : (active + delta + shown.length) % shown.length
+          return setActive(next)
         }
-        if (event.key === "Enter" && open && active >= 0) {
+        if (event.key === "Enter" && open && shown.length) {
           event.preventDefault()
-          choose(shown[active])
+          choose(shown[active >= 0 ? active : 0])
         }
       })
 
       this.combobox = {
         setItems(next) { items = next },
         display(item) { showSelected(item) },
-        destroy() { wrap.replaceWith(select); select.style.display = "" }
+        sync() { restoreSelected() },
+        destroy() {
+          if (blurTimer) clearTimeout(blurTimer)
+          labels.forEach((label) => {
+            if (label.htmlFor === inputId) label.htmlFor = select.id
+          })
+          wrap.replaceWith(select)
+          select.style.display = originalDisplay
+          select.required = originalRequired
+        }
       }
     }
 
     notify() {
-      if (typeof this.config.onChange === "function") this.config.onChange(this.value)
+      if (typeof this.config.onChange !== "function") return
+
+      try {
+        this.config.onChange(this.value)
+      } catch (error) {
+        this.fail(error)
+      }
     }
 
     fail(error) {
-      if (typeof this.config.onError === "function") this.config.onError(error)
-      else console.warn("[VehiclesDropdown]", error.message)
+      if (typeof this.config.onError === "function") {
+        try {
+          this.config.onError(error)
+        } catch (callbackError) {
+          console.warn("[VehiclesDropdown] onError callback failed", callbackError)
+        }
+      } else console.warn("[VehiclesDropdown]", error.message)
     }
 
     get value() {
@@ -423,16 +582,21 @@
     }
 
     destroy() {
+      if (this.destroyed) return
       this.destroyed = true
       this.makeSelect.removeEventListener("change", this.handleMakeChange)
       if (this.modelSelect) this.modelSelect.removeEventListener("change", this.handleModelChange)
+      this.form?.removeEventListener("reset", this.handleFormReset)
       if (this.combobox) this.combobox.destroy()
       if (this.attributionEl) this.attributionEl.remove()
+      this.objectUrls.forEach((url) => URL.revokeObjectURL(url))
+      this.objectUrls.clear()
+      this.logoUrls.clear()
     }
   }
 
   return {
     attach(options) { return new Instance(options) },
-    version: "0.1.3"
+    version: "0.1.4"
   }
 })

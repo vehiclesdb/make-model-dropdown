@@ -14,7 +14,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.1.4"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -85,7 +85,16 @@ The vehicle identity data is [CC-BY 4.0](https://vehiclesdb.com/attribution) —
 
 ## The API underneath
 
-The widget speaks three documented endpoints — [`GET /api/v1/makes`](https://vehiclesdb.com/api), `GET /api/v1/makes/{slug}/models` and `GET /api/v1/search` — which cost 0 credits and accept publishable keys, so the dropdown never spends your quota. The same key unlocks the rest of the [VehiclesDB API](https://vehiclesdb.com/api): resolve free-text vehicle strings to canonical ids, full spec records, imagery, license plate validation.
+The widget speaks the documented Dropdown Data endpoints — [`GET /api/v1/makes`](https://vehiclesdb.com/api), `GET /api/v1/makes/{slug}/models`, `GET /api/v1/search`, and make logos — which cost 0 credits and accept publishable keys, so the dropdown never spends your quota. Public keys are deliberately refused everywhere else. Use a private `vdb_sk_…` key from your backend for the rest of the [VehiclesDB API](https://vehiclesdb.com/api): resolving free-text vehicle strings, full records, imagery, and license-plate validation.
+
+## Development
+
+```bash
+npm ci
+npm test
+```
+
+The test suite runs the published UMD artifact in a real DOM implementation and covers dependent loading, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, and object-URL cleanup.
 
 ## License
 
@@ -94,5 +103,5 @@ MIT for this library. Data: identity layer CC-BY 4.0, enrichment proprietary —
 ## Releasing (maintainers)
 
 1. Bump `version` in `package.json` AND the `version:` string in `make-model-dropdown.js`, keep them equal.
-2. Re-vendor the dist into the website so the live demo ships the same bytes npm does: `cp make-model-dropdown.js ../vehiclesdb-web/vendor/javascript/make-model-dropdown.js`. The website's system test drives the vendored copy against the real API, so a broken dist fails their CI.
+2. Re-vendor the dist into the website and verify the two files are byte-for-byte identical. The website's system test drives that copy against the real API, so a broken dist fails its CI.
 3. `npm publish` (owner ritual, like gem releases).
