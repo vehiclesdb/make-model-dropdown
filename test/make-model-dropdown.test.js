@@ -141,9 +141,9 @@ test("attach validates its element and credential contract synchronously", () =>
 test("a throwing host callback cannot interrupt dependent model loading", async () => {
   const document = installDOM(`<select id="make"></select><select id="model"></select>`)
   const base = apiBase("callbacks")
-  const warnings = []
-  const originalWarn = console.warn
-  console.warn = (...args) => warnings.push(args)
+  const logged = []
+  const originalError = console.error
+  console.error = (...args) => logged.push(args)
   global.fetch = async (url) => {
     if (url.includes("/models")) return jsonResponse({ models: [{ name: "A3", slug: "a3" }] })
     return jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
@@ -160,9 +160,11 @@ test("a throwing host callback cannot interrupt dependent model loading", async 
     document.querySelector("#make").dispatchEvent(new Event("change", { bubbles: true }))
     await waitFor(() => document.querySelector("#model").options.length === 2, "models after callback failure")
     assert.equal(document.querySelector("#model").options[1].value, "a3")
-    assert.equal(warnings.length, 1)
+    // The consumer bug lands in console.error whole, and never in onError.
+    assert.equal(logged.length, 1)
+    assert.match(String(logged[0][1]), /consumer failed/)
   } finally {
-    console.warn = originalWarn
+    console.error = originalError
   }
 })
 
@@ -393,8 +395,10 @@ test("combobox stays in sync, restores typed text, and restores labels on destro
 
   input.value = "still not a make"
   input.dispatchEvent(new Event("blur"))
-  await new Promise((resolve) => setTimeout(resolve, 120))
+  // SYNCHRONOUSLY: a submit button clicked in the same tick as the blur must
+  // already see the visible text agreeing with the form value.
   assert.equal(input.value, "Audi")
+  assert.equal(select.value, "audi")
 
   instance.destroy()
   instances = instances.filter((candidate) => candidate !== instance)
@@ -484,33 +488,112 @@ test("logo blobs are credential-scoped and object URLs are instance-owned", asyn
   }
 })
 
-test("a transient logo failure can retry within the same instance", async () => {
+test("a failed logo fetch is a cached miss, not a retry storm", async () => {
   const document = installDOM(`<select id="make"></select>`)
   dom.window.HTMLElement.prototype.scrollIntoView = () => {}
-  const base = apiBase("logo-retry")
+  const base = apiBase("logo-miss")
   let logoCalls = 0
   global.fetch = async (url) => {
     if (new URL(url).pathname.endsWith("/logo")) {
       logoCalls += 1
-      return logoCalls === 1
-        ? new Response("temporary", { status: 503 })
-        : new Response(new Blob(["svg"]), { status: 200, headers: { "Content-Type": "image/svg+xml" } })
+      return new Response("denied", { status: 403 })
     }
     return jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
   }
 
-  const originalCreate = URL.createObjectURL
-  URL.createObjectURL = () => "blob:retry"
-  try {
-    attach({ key: "logo-retry-key", apiBase: base, make: "#make", logos: true, attribution: false })
-    await waitFor(() => document.querySelector("#make").options.length === 2)
-    const input = document.querySelector("[role=combobox]")
+  attach({ key: "logo-miss-key", apiBase: base, make: "#make", logos: true, attribution: false })
+  await waitFor(() => document.querySelector("#make").options.length === 2)
+  const input = document.querySelector("[role=combobox]")
+  // Every focus re-renders the list; each row asks for its logo. A failing
+  // logo endpoint must cost ONE request per make for the whole pageview,
+  // never one per render.
+  for (let i = 0; i < 4; i += 1) {
     input.dispatchEvent(new Event("focus"))
-    await waitFor(() => logoCalls === 1)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    input.dispatchEvent(new Event("focus"))
-    await waitFor(() => logoCalls === 2)
-  } finally {
-    URL.createObjectURL = originalCreate
+    input.dispatchEvent(new Event("blur"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
   }
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(logoCalls, 1, `expected a single cached miss, saw ${logoCalls} requests`)
+})
+
+test("focus plus Enter never overwrites a committed selection", async () => {
+  const document = installDOM(`<select id="make"></select>`)
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {}
+  const base = apiBase("enter-guard")
+  global.fetch = async () => jsonResponse({ makes: [
+    { name: "Abarth", slug: "abarth" },
+    { name: "BMW", slug: "bmw" },
+    { name: "Toyota", slug: "toyota" }
+  ] })
+
+  attach({ key: "enter-key", apiBase: base, make: "#make", search: true, attribution: false })
+  await waitFor(() => document.querySelector("#make").options.length === 4)
+  const select = document.querySelector("#make")
+  const input = document.querySelector("[role=combobox]")
+
+  select.value = "toyota"
+  select.dispatchEvent(new Event("change", { bubbles: true }))
+  assert.equal(input.value, "Toyota")
+
+  // The bug this guards: focus opens the full list, and Enter with nothing
+  // active used to commit the first row alphabetically (Abarth).
+  input.dispatchEvent(new Event("focus"))
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+  assert.equal(select.value, "toyota", "Enter with no active row must not pick row zero")
+  assert.equal(input.value, "Toyota")
+
+  // Typing down to a single match plus Enter is still the productive path.
+  input.value = "bm"
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+  assert.equal(select.value, "bmw")
+  assert.equal(input.value, "BMW")
+
+  // Garbage text plus Enter restores the committed pair before any submit.
+  input.value = "zzzz"
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+  assert.equal(select.value, "bmw")
+  assert.equal(input.value, "BMW")
+})
+
+test("a dropped server preselection announces itself instead of diverging silently", async () => {
+  const document = installDOM(`
+    <select id="make"><option value="lada" selected>Lada</option></select>
+  `)
+  const base = apiBase("preselect-drop")
+  global.fetch = async () => jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+  const changes = []
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (...parts) => warnings.push(parts.join(" "))
+  try {
+    attach({ key: "drop-key", apiBase: base, make: "#make", attribution: false,
+      onChange(value) { changes.push(value) } })
+    await waitFor(() => changes.length === 1)
+  } finally {
+    console.warn = originalWarn
+  }
+  assert.equal(document.querySelector("#make").value, "")
+  assert.equal(changes[0].make, null, "the consumer must hear that the selection is gone")
+  assert.ok(warnings.some((line) => line.includes("lada")), "the dropped value should be named")
+})
+
+test("a consumer onChange bug is not delivered to onError as an API failure", async () => {
+  const document = installDOM(`<select id="make"></select><select id="model"></select>`)
+  const base = apiBase("onchange-bug")
+  global.fetch = async (url) => new URL(url).pathname.endsWith("/models")
+    ? jsonResponse({ models: [] })
+    : jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+  const apiErrors = []
+  attach({ key: "bug-key", apiBase: base, make: "#make", model: "#model", attribution: false,
+    onChange() { throw new Error("consumer bug") },
+    onError(error) { apiErrors.push(error) } })
+  await waitFor(() => document.querySelector("#make").options.length === 2)
+  const select = document.querySelector("#make")
+  select.value = "audi"
+  select.dispatchEvent(new Event("change", { bubbles: true }))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(apiErrors.length, 0, "onError is for API failures, not consumer exceptions")
 })

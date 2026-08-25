@@ -85,7 +85,7 @@ The vehicle identity data is [CC-BY 4.0](https://vehiclesdb.com/attribution) —
 
 ## The API underneath
 
-The widget speaks the documented Dropdown Data endpoints — [`GET /api/v1/makes`](https://vehiclesdb.com/api), `GET /api/v1/makes/{slug}/models`, `GET /api/v1/search`, and make logos — which cost 0 credits and accept publishable keys, so the dropdown never spends your quota. Public keys are deliberately refused everywhere else. Use a private `vdb_sk_…` key from your backend for the rest of the [VehiclesDB API](https://vehiclesdb.com/api): resolving free-text vehicle strings, full records, imagery, and license-plate validation.
+The widget speaks the documented Dropdown Data endpoints: [`GET /api/v1/makes`](https://vehiclesdb.com/api), `GET /api/v1/makes/{slug}/models`, and make logos. (`GET /api/v1/search` is part of the same free surface if you build your own typeahead.) They cost 0 credits and accept publishable keys, so the dropdown never spends your quota. Public keys are deliberately refused everywhere else. Use a private `vdb_sk_…` key from your backend for the rest of the [VehiclesDB API](https://vehiclesdb.com/api): resolving free-text vehicle strings, full records, imagery, and license-plate validation.
 
 ## Development
 

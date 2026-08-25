@@ -30,6 +30,7 @@
     attribution: true,     // "Vehicle data by VehiclesDB" line (CC-BY credit)
     placeholderMake: "Make",
     placeholderModel: "Model",
+    requiredMessage: "Please select a vehicle make.", // validity message on a required make field
     onChange: null,        // ({ make, model }) => {}
     onError: null          // (error) => {}
   }
@@ -94,9 +95,11 @@
       if (response.status === 404) return null
       if (!response.ok) throw new Error(`VehiclesDB logo API answered ${response.status}`)
       return response.blob()
-    })
+      // ANY failure is a cached miss for the rest of the pageview: the letter
+      // chip renders instead. Every keystroke re-renders up to 50 rows, so a
+      // misbehaving logo endpoint retried per render would be a request storm.
+    }).catch(() => null)
     logoCache.set(cacheKey, promise)
-    promise.catch(() => logoCache.delete(cacheKey))
     return promise
   }
 
@@ -213,6 +216,7 @@
         const data = await fetchJSON(`${this.api}/makes${query(this.config)}`, this.config.key, "makes")
         if (this.destroyed) return
         this.makes = data.makes
+        const preselected = this.makeSelect.value
         fillSelect(this.makeSelect, this.config.placeholderMake, data.makes, this.config)
         if (this.config.includeOther) appendOther(this.makeSelect)
         if (this.combobox) this.combobox.setItems(data.makes)
@@ -234,6 +238,14 @@
         this.combobox?.sync()
 
         if (this.makeSelect.value) this.makeChanged()
+        else if (preselected && preselected !== "other") {
+          // A server-rendered selection that the fetched list does not carry
+          // (filtered out by kind/country/topMakes, or simply unknown) has
+          // just been dropped. Say so: the consumer's own state still holds
+          // the old value, and a silent empty submit is the worst outcome.
+          console.warn(`[VehiclesDropdown] preselected make ${JSON.stringify(preselected)} is not in the fetched list; selection cleared`)
+          this.notify()
+        }
       } catch (error) {
         if (!this.destroyed) this.fail(error)
       }
@@ -302,9 +314,6 @@
         const url = URL.createObjectURL(blob)
         this.objectUrls.add(url)
         return url
-      }).catch(() => {
-        this.logoUrls.delete(cacheKey)
-        return null
       })
       this.logoUrls.set(cacheKey, promise)
       return promise
@@ -386,9 +395,15 @@
         wrap.append(adornment)
       }
 
+      let adornedFor = null
       function showSelected(item) {
         input.value = item.name
         if (!adornment) return
+        // choose() lands here twice per pick (directly, then again via the
+        // change event through sync()); repainting the chip while the cached
+        // logo re-resolves flashes the letter fallback. Same item, no repaint.
+        if (adornedFor === item.name && adornment.childElementCount) return
+        adornedFor = item.name
         adornment.style.display = "inline-flex"
         input.style.paddingLeft = "2.75rem"
         adornment.replaceChildren(chip(item.name))
@@ -503,7 +518,7 @@
       function syncValidity() {
         if (!originalRequired) return
         const item = selectedItem()
-        input.setCustomValidity(item && input.value === item.name ? "" : "Please select a vehicle make.")
+        input.setCustomValidity(item && input.value === item.name ? "" : self.config.requiredMessage)
       }
 
       input.addEventListener("input", () => { render(input.value); syncValidity() })
@@ -513,7 +528,12 @@
         render("")
       })
       input.addEventListener("blur", () => {
-        blurTimer = setTimeout(() => { restoreSelected(); close() }, 100)
+        // Synchronously: list rows preventDefault on mousedown so they never
+        // blur the input, which means a blur is always a real departure — and
+        // a submit button clicked right after must find the visible text and
+        // the form value already agreeing.
+        restoreSelected()
+        blurTimer = setTimeout(close, 100)
       })
       input.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
@@ -532,9 +552,34 @@
           const next = active < 0 ? (delta > 0 ? 0 : shown.length - 1) : (active + delta + shown.length) % shown.length
           return setActive(next)
         }
-        if (event.key === "Enter" && open && shown.length) {
-          event.preventDefault()
-          choose(shown[active >= 0 ? active : 0])
+        if (event.key === "Enter") {
+          // Commit only a deliberate choice: an arrowed-to row, the single
+          // remaining match, or text that names one exactly. Focusing the
+          // field opens the full list, and Enter there must never quietly
+          // swap a committed selection for the first row alphabetically.
+          if (open && shown.length && active >= 0) {
+            event.preventDefault()
+            return choose(shown[active])
+          }
+          // Text agreeing with the committed selection is a plain form
+          // submit, not a re-pick (a re-pick would clear the chosen model).
+          const committed = selectedItem()
+          if (committed && input.value === committed.name) return close()
+          if (open && shown.length === 1) {
+            event.preventDefault()
+            return choose(shown[0])
+          }
+
+          const needle = input.value.trim().toLowerCase()
+          const exact = needle && items.find((item) => item.name.toLowerCase() === needle)
+          if (exact) {
+            event.preventDefault()
+            return choose(exact)
+          }
+          // No choice made: restore before the form submits, so the value it
+          // carries is the one the field visibly shows.
+          restoreSelected()
+          close()
         }
       })
 
@@ -560,7 +605,10 @@
       try {
         this.config.onChange(this.value)
       } catch (error) {
-        this.fail(error)
+        // A consumer bug is not an API failure: onError promises errors with
+        // .status/.code, and handlers switching on those would misroute this.
+        // Log it whole (stack included) without interrupting the widget.
+        console.error("[VehiclesDropdown] onChange callback failed", error)
       }
     }
 

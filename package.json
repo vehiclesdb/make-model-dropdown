@@ -42,7 +42,7 @@
     "README.md",
     "LICENSE"
   ],
-  "sideEffects": false,
+  "sideEffects": true,
   "devDependencies": {
     "jsdom": "^26.1.0"
   }
