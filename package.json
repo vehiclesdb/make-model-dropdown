@@ -1,0 +1,42 @@
+{
+  "name": "@vehiclesdb/dropdown",
+  "version": "0.1.0",
+  "description": "Car make and model dropdown for any web page. A dependent make/model picker with live vehicle data from the VehiclesDB API: ~19k models, ~860 makes, cars to buses, from official registers of 14 countries. Zero dependencies.",
+  "keywords": [
+    "car make model dropdown",
+    "motorcycle make model dropdown",
+    "motorbike dropdown",
+    "truck makes and models",
+    "vehicle dropdown",
+    "make model select",
+    "car makes and models list",
+    "vehicle data",
+    "car database",
+    "motorcycle database",
+    "truck database",
+    "vehicles api",
+    "vehiclesdb"
+  ],
+  "homepage": "https://vehiclesdb.com/make-and-model-dropdown",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vehiclesdb/dropdown.git"
+  },
+  "bugs": "https://github.com/vehiclesdb/dropdown/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "vehicles-dropdown.js",
+  "exports": {
+    ".": {
+      "import": "./index.mjs",
+      "default": "./vehicles-dropdown.js"
+    }
+  },
+  "files": [
+    "vehicles-dropdown.js",
+    "index.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": true
+}

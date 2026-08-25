@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VehiclesDropdown demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; }
+    label { display: block; margin: 1rem 0 .25rem; font-weight: 600; font-size: .875rem; }
+    select, input { width: 100%; padding: .5rem .75rem; border: 1px solid #d1d5db; border-radius: .5rem; font: inherit; }
+    pre { background: #f3f4f6; padding: .75rem; border-radius: .5rem; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <h1>VehiclesDropdown demo</h1>
+  <p>Serve this file from any origin (<code>npx serve demo</code>) against a running
+  vehiclesdb-web at <code>localhost:3000</code> to exercise CORS, the origin lock and
+  the widget end to end. Paste a publishable key below.</p>
+
+  <label for="key">Publishable key</label>
+  <input id="key" placeholder="vdb_pk_…">
+
+  <form>
+    <label for="make">Make</label>
+    <select id="make" name="make"></select>
+    <label for="model">Model</label>
+    <select id="model" name="model"></select>
+  </form>
+
+  <pre id="state">{}</pre>
+
+  <script src="../vehicles-dropdown.js"></script>
+  <script>
+    let instance
+    document.getElementById("key").addEventListener("change", (event) => {
+      if (instance) instance.destroy()
+      instance = VehiclesDropdown.attach({
+        key: event.target.value.trim(),
+        apiBase: "http://localhost:3000/api/v1",
+        make: "#make",
+        model: "#model",
+        search: true,
+        logos: true,
+        includeOther: true,
+        onChange: (value) => {
+          document.getElementById("state").textContent = JSON.stringify(value, null, 2)
+        },
+        onError: (error) => {
+          document.getElementById("state").textContent = `Error: ${error.message}`
+        }
+      })
+    })
+  </script>
+</body>
+</html>
