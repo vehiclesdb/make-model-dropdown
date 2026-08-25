@@ -3,8 +3,8 @@
  * https://vehiclesdb.com/make-and-model-dropdown
  *
  * A dependent make → model picker for any web page, powered by the VehiclesDB
- * API: ~19k models across ~860 makes (cars, motorcycles, mopeds, vans, trucks,
- * buses), reconciled from official registers of 14 countries.
+ * API: 14,000+ models across 850+ makes (cars, motorcycles, mopeds, vans,
+ * trucks, buses), reconciled from official registers of 14 countries.
  *
  * Zero dependencies. No build step. MIT licensed.
  * Data: CC-BY 4.0 (identity layer) — the widget renders attribution for you.
@@ -199,8 +199,11 @@
     // The searchable combobox: a text input + ARIA listbox layered over the
     // make <select>, which stays in the DOM (hidden) as the form value —
     // progressive enhancement, the form submits the same either way.
+    // Keyboard per the WAI-ARIA combobox pattern: arrows move the active
+    // option (aria-activedescendant), Enter chooses it, Escape closes.
     enhance() {
       const select = this.makeSelect
+      const listId = `vdb-listbox-${(Instance.sequence = (Instance.sequence || 0) + 1)}`
       const wrap = document.createElement("div")
       wrap.className = "vdb-combobox"
       wrap.style.cssText = "position:relative;"
@@ -213,11 +216,13 @@
       input.setAttribute("role", "combobox")
       input.setAttribute("aria-expanded", "false")
       input.setAttribute("aria-autocomplete", "list")
+      input.setAttribute("aria-controls", listId)
       input.placeholder = this.config.placeholderMake
       input.autocomplete = "off"
       input.className = "vdb-combobox-input"
 
       const list = document.createElement("ul")
+      list.id = listId
       list.setAttribute("role", "listbox")
       list.className = "vdb-combobox-list"
       list.style.cssText = "position:absolute;z-index:20;inset-inline:0;top:100%;max-height:16rem;" +
@@ -229,28 +234,52 @@
 
       const self = this
       let items = []
+      let shown = []   // the item behind each rendered row, by index
+      let active = -1  // index into `shown`
       let open = false
 
-      function close() { open = false; list.style.display = "none"; input.setAttribute("aria-expanded", "false") }
+      function close() {
+        open = false; active = -1
+        list.style.display = "none"
+        input.setAttribute("aria-expanded", "false")
+        input.removeAttribute("aria-activedescendant")
+      }
       function openList() { open = true; list.style.display = "block"; input.setAttribute("aria-expanded", "true") }
+
+      function setActive(index) {
+        const rows = list.children
+        if (active >= 0 && rows[active]) {
+          rows[active].style.background = ""
+          rows[active].setAttribute("aria-selected", "false")
+        }
+        active = index
+        if (active < 0 || !rows[active]) return input.removeAttribute("aria-activedescendant")
+        rows[active].style.background = "#f3f4f6"
+        rows[active].setAttribute("aria-selected", "true")
+        rows[active].scrollIntoView({ block: "nearest" })
+        input.setAttribute("aria-activedescendant", rows[active].id)
+      }
 
       function choose(item) {
         input.value = item.name
-        select.value = optionValue(self.config, item)
+        // The escape-hatch row carries its own fixed value ("other");
+        // real makes answer to the configured values mode.
+        select.value = item.value !== undefined ? item.value : optionValue(self.config, item)
         select.dispatchEvent(new Event("change", { bubbles: true }))
         close()
       }
 
-      function row(item) {
+      function row(item, index) {
         const li = document.createElement("li")
+        li.id = `${listId}-opt-${index}`
         li.setAttribute("role", "option")
+        li.setAttribute("aria-selected", "false")
         li.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.375rem .5rem;" +
           "border-radius:.375rem;cursor:pointer;"
         li.addEventListener("mousedown", (event) => { event.preventDefault(); choose(item) })
-        li.addEventListener("mouseenter", () => { li.style.background = "#f3f4f6" })
-        li.addEventListener("mouseleave", () => { li.style.background = "" })
+        li.addEventListener("mouseenter", () => setActive(index))
 
-        if (self.config.logos) {
+        if (self.config.logos && !item.value) {
           const holder = chip(item.name)
           li.append(holder)
           fetchLogo(self.api, self.config.key, item.slug).then((url) => {
@@ -275,14 +304,32 @@
         const matches = needle
           ? items.filter((m) => m.name.toLowerCase().includes(needle))
           : items
-        list.replaceChildren(...matches.slice(0, 50).map(row))
-        matches.length ? openList() : close()
+        shown = matches.slice(0, 50)
+        // The escape hatch rides along unfiltered: a picker should never
+        // dead-end, least of all for the person whose make is not listed.
+        if (self.config.includeOther) shown = shown.concat({ name: "Other / not listed", value: "other" })
+        active = -1
+        input.removeAttribute("aria-activedescendant")
+        list.replaceChildren(...shown.map(row))
+        shown.length ? openList() : close()
       }
 
       input.addEventListener("input", () => render(input.value))
       input.addEventListener("focus", () => render(input.value))
       input.addEventListener("blur", () => setTimeout(close, 100))
-      input.addEventListener("keydown", (event) => { if (event.key === "Escape") close() })
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") return close()
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault()
+          if (!open) return render(input.value)
+          const delta = event.key === "ArrowDown" ? 1 : -1
+          return setActive((active + delta + shown.length) % shown.length)
+        }
+        if (event.key === "Enter" && open && active >= 0) {
+          event.preventDefault()
+          choose(shown[active])
+        }
+      })
 
       this.combobox = {
         setItems(next) { items = next },

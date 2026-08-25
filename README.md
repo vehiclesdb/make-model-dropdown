@@ -1,6 +1,6 @@
 # Car, motorcycle and truck make and model dropdown
 
-**The make/model picker you stopped hand-maintaining.** `@vehiclesdb/dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api): **~19,000 models across ~860 makes**, six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from the official vehicle registers of 14 countries and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
+**The make/model picker you stopped hand-maintaining.** `@vehiclesdb/dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api): **14,000+ models across 850+ makes**, six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from the official vehicle registers of 14 countries and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
 
 Zero dependencies. No build step. Works with plain HTML forms, React, Vue, Rails, anything that renders a `<select>`.
 
@@ -85,3 +85,9 @@ The widget speaks three documented endpoints — [`GET /api/v1/makes`](https://v
 ## License
 
 MIT for this library. Data: identity layer CC-BY 4.0, enrichment proprietary — see [vehiclesdb.com/attribution](https://vehiclesdb.com/attribution).
+
+## Releasing (maintainers)
+
+1. Bump `version` in `package.json` AND the `version:` string in `vehicles-dropdown.js`, keep them equal.
+2. Re-vendor the dist into the website so the live demo ships the same bytes npm does: `cp vehicles-dropdown.js ../vehiclesdb-web/vendor/javascript/vehicles-dropdown.js`. The website's system test drives the vendored copy against the real API, so a broken dist fails their CI.
+3. `npm publish` (owner ritual, like gem releases).
