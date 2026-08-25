@@ -186,12 +186,18 @@
     }
 
     async makeChanged() {
+      // CLEAR THE MODEL BEFORE ANNOUNCING. The old model belongs to the old
+      // make, so reporting {make: "suzuki", model: "golf"} for the moment
+      // between the change and the fetch is not a lag, it is a wrong answer —
+      // and onChange consumers write it straight into their form state.
+      if (this.modelSelect) {
+        fillSelect(this.modelSelect, this.config.placeholderModel, [], this.config, "")
+      }
       this.notify()
       if (!this.modelSelect) return
 
       const makeValue = this.makeSelect.value
       if (!makeValue || makeValue === "other") {
-        fillSelect(this.modelSelect, this.config.placeholderModel, [], this.config, "")
         if (makeValue === "other" && this.config.includeOther) appendOther(this.modelSelect)
         return
       }
@@ -427,6 +433,6 @@
 
   return {
     attach(options) { return new Instance(options) },
-    version: "0.1.2"
+    version: "0.1.3"
   }
 })
