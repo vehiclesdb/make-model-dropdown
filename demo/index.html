@@ -25,6 +25,8 @@
     <select id="make" name="make"></select>
     <label for="model">Model</label>
     <select id="model" name="model"></select>
+    <label for="year">Year</label>
+    <select id="year" name="year"></select>
   </form>
 
   <pre id="state">{}</pre>
@@ -39,6 +41,7 @@
         apiBase: "http://localhost:3000/api/v1",
         make: "#make",
         model: "#model",
+        year: "#year",
         search: true,
         logos: true,
         includeOther: true,
