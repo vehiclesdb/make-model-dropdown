@@ -1,6 +1,6 @@
 # Car, motorcycle and truck make and model dropdown
 
-**The make/model picker you stopped hand-maintaining.** `make-model-dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api): **14,000+ models across 850+ makes**, six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from the official vehicle registers of 14 countries and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
+**The make/model picker you stopped hand-maintaining.** `make-model-dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api): **14,000+ models across 850+ makes**, six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from official national vehicle registers and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
 
 Zero dependencies. No build step. Works with plain HTML forms, React, Vue, Rails, anything that renders a `<select>`.
 
@@ -88,7 +88,9 @@ The years are register years, not production years: the span runs from the first
 About one model in eight has no span on record (and an "Other / not listed" model never has one). `yearFallback` decides what those models get:
 
 - `"range"` (default): the current year back to 40 years ago. The year field never dead-ends, so a customer whose model the registers cannot date can still book.
-- `"none"`: the placeholder only (plus Other with `includeOther`), and the year select is disabled, for forms that would rather not offer years the registers cannot back up.
+- `"none"`: no years, for forms that would rather not offer years the registers cannot back up. With `includeOther` the select stays enabled with the placeholder and Other, so that choice can still be made; without it there is nothing to choose, so the select is disabled. The widget only ever undoes its own disabling and never overrides a `disabled` your page sets.
+
+A year the host supplies (`initialYear`, or a server-rendered selected option in an edit form) is never dropped: if it falls outside the model's span it is added to the list in its place, selected, and logged once with `console.warn`.
 
 No extra request is made: the spans come with the model list the widget already loads.
 

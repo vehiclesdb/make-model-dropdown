@@ -866,3 +866,202 @@ test("attach validates the year select contract synchronously", () => {
   assert.throws(() => VehiclesDropdown.attach({ key: "key", make: "#make", model: "#model", year: "#make" }), /different <select>/)
   assert.throws(() => VehiclesDropdown.attach({ key: "key", make: "#make", model: "#model", year: "#missing" }), /year element not found/)
 })
+
+test("initialYear never lands on a make or model it was not meant for", async () => {
+  const document = installDOM(`
+    <select id="make-a"><option value="volkswagen" selected>Volkswagen</option></select>
+    <select id="model-a"></select><select id="year-a"></select>
+    <select id="make-b"><option value="volkswagen" selected>Volkswagen</option></select>
+    <select id="model-b"></select><select id="year-b"></select>
+  `)
+  const base = apiBase("year-intended")
+  global.fetch = async (url) => {
+    if (url.includes("/volkswagen/models")) {
+      return jsonResponse({ models: [{ name: "Golf", slug: "golf", years_on_record: { first: 2015, last: 2022 } }] })
+    }
+    if (url.includes("/audi/models")) {
+      return jsonResponse({ models: [{ name: "A3", slug: "a3", years_on_record: { first: 2015, last: 2022 } }] })
+    }
+    return jsonResponse({ makes: [{ name: "Audi", slug: "audi" }, { name: "Volkswagen", slug: "volkswagen" }] })
+  }
+
+  // An initial model and no initial make: the make check passes for any
+  // make, so only the model check stands between the Golf and the A3's year.
+  attach({
+    key: "year-intended-key", apiBase: base, make: "#make-a", model: "#model-a", year: "#year-a",
+    initialModel: "a3", initialYear: 2019, attribution: false
+  })
+  // Without one: a Volkswagen is still not the Audi the year was meant for.
+  attach({
+    key: "year-intended-key", apiBase: base, make: "#make-b", model: "#model-b", year: "#year-b",
+    initialMake: "audi", initialYear: 2019, attribution: false
+  })
+  await waitFor(() => document.querySelector("#model-a").options.length === 2 && document.querySelector("#model-b").options.length === 2)
+  for (const side of ["a", "b"]) {
+    pick(document.querySelector(`#model-${side}`), "golf")
+    assert.equal(document.querySelector(`#year-${side}`).value, "", `${side}: an Audi's year must never date the host's Golf`)
+  }
+
+  for (const side of ["a", "b"]) {
+    pick(document.querySelector(`#make-${side}`), "audi")
+    await waitFor(() => Array.from(document.querySelector(`#model-${side}`).options).some((option) => option.value === "a3"))
+    pick(document.querySelector(`#model-${side}`), "a3")
+    assert.equal(document.querySelector(`#year-${side}`).value, "2019", `${side}: the intended A3 gets its year`)
+  }
+})
+
+test("malformed spans take the fallback instead of rendering nonsense", async () => {
+  const document = installDOM(`<select id="make"></select><select id="model"></select><select id="year"></select>`)
+  const base = apiBase("year-malformed")
+  const current = new Date().getFullYear()
+  const spans = {
+    ancient: { first: -8000, last: 2026 },
+    zero: { first: 0, last: 0 },
+    future: { first: 2020, last: 2099 },
+    reversed: { first: 2022, last: 2015 },
+    strings: { first: "2010", last: "2020" },
+    // Last on purpose: 1e300 passes Number.isInteger and 1e300 - 1 === 1e300,
+    // so the old countdown never finished.
+    endless: { first: 2020, last: 1e300 }
+  }
+  global.fetch = async (url) => new URL(url).pathname.endsWith("/models")
+    ? jsonResponse({ models: [
+      ...Object.entries(spans).map(([slug, span]) => ({ name: slug, slug, years_on_record: span })),
+      { name: "edges", slug: "edges", years_on_record: { first: 1886, last: current + 1 } }
+    ] })
+    : jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+
+  attach({ key: "year-malformed-key", apiBase: base, make: "#make", model: "#model", year: "#year", attribution: false })
+  await waitFor(() => document.querySelector("#make").options.length === 2)
+  pick(document.querySelector("#make"), "audi")
+  await waitFor(() => document.querySelector("#model").options.length === 8)
+  const year = document.querySelector("#year")
+
+  for (const slug of Object.keys(spans)) {
+    pick(document.querySelector("#model"), slug)
+    assert.equal(year.options.length, 1 + 41, `${slug}: the fallback range, not the payload`)
+    assert.equal(year.options[1].value, String(current))
+  }
+
+  // The widest span the bounds admit stays a bounded list.
+  pick(document.querySelector("#model"), "edges")
+  assert.equal(year.options[1].value, String(current + 1))
+  assert.equal(year.options[year.options.length - 1].value, "1886")
+  assert.ok(year.options.length < 150)
+})
+
+test("a saved year outside the model's span is kept, in its place, and announced", async () => {
+  const document = installDOM(`
+    <select id="make-a"><option value="audi" selected>Audi</option></select>
+    <select id="model-a"><option value="a3" selected>A3</option></select>
+    <select id="year-a"><option value="2024" selected>2024</option></select>
+    <select id="make-b"></select><select id="model-b"></select><select id="year-b"></select>
+  `)
+  const base = apiBase("year-kept")
+  global.fetch = async (url) => new URL(url).pathname.endsWith("/models")
+    ? jsonResponse({ models: [{ name: "A3", slug: "a3", years_on_record: { first: 2015, last: 2022 } }] })
+    : jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (...parts) => warnings.push(parts.join(" "))
+  try {
+    // An edit form: the register span ends in 2022, the customer's car is a 2024.
+    const edit = attach({ key: "year-kept-key", apiBase: base, make: "#make-a", model: "#model-a", year: "#year-a", attribution: false })
+    // A configured initial year older than the span, with Other enabled.
+    attach({
+      key: "year-kept-key", apiBase: base, make: "#make-b", model: "#model-b", year: "#year-b",
+      initialMake: "audi", initialModel: "a3", initialYear: 2010, includeOther: true, attribution: false
+    })
+    await waitFor(() => document.querySelector("#year-a").options.length === 10 && document.querySelector("#year-b").value === "2010")
+
+    assert.deepEqual(optionValues(document.querySelector("#year-a")),
+      ["", "2024", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015"])
+    assert.deepEqual(edit.value, { make: "audi", model: "a3", year: 2024 })
+    assert.deepEqual(optionValues(document.querySelector("#year-b")).slice(-3), ["2015", "2010", "other"])
+  } finally {
+    console.warn = originalWarn
+  }
+  assert.equal(warnings.filter((line) => line.includes("2024")).length, 1, "the kept year should be named, once")
+  assert.equal(warnings.filter((line) => line.includes("2010")).length, 1)
+})
+
+test("the host owns disabled; the widget only ever undoes its own", async () => {
+  const document = installDOM(`
+    <select id="make-a"></select><select id="model-a"></select><select id="year-a" disabled></select>
+    <select id="make-b"></select><select id="model-b"></select><select id="year-b"></select>
+    <select id="make-c"></select><select id="model-c"></select><select id="year-c"></select>
+    <select id="make-d"></select><select id="model-d"></select><select id="year-d"></select>
+  `)
+  const base = apiBase("year-disabled")
+  global.fetch = async (url) => new URL(url).pathname.endsWith("/models")
+    ? jsonResponse({ models: [
+      { name: "A1", slug: "a1", years_on_record: { first: 2010, last: 2024 } },
+      { name: "A3", slug: "a3", years_on_record: { first: 2015, last: 2022 } },
+      { name: "Q7", slug: "q7", years_on_record: null }
+    ] })
+    : jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+  const options = (side, extra) => Object.assign({
+    key: "year-disabled-key", apiBase: base, make: `#make-${side}`, model: `#model-${side}`,
+    year: `#year-${side}`, attribution: false
+  }, extra)
+
+  // a: disabled by the host at attach time, enabled by the host after a pick.
+  attach(options("a", { initialMake: "audi", initialModel: "a3", initialYear: 2019 }))
+  // b: enabled at attach time, disabled by the host afterwards.
+  const b = attach(options("b"))
+  // c: disabled by the widget itself ("none", nothing to choose).
+  const c = attach(options("c", { yearFallback: "none" }))
+  // d: "none" with Other enabled — Other is a choice, so the field stays usable.
+  attach(options("d", { yearFallback: "none", includeOther: true }))
+  const year = (side) => document.querySelector(`#year-${side}`)
+
+  await waitFor(() => year("a").value === "2019", "initialYear applies to a host-disabled field")
+  assert.equal(year("a").disabled, true, "the host's disabled is left alone")
+  year("a").disabled = false
+  pick(document.querySelector("#model-a"), "a1")
+  assert.equal(year("a").disabled, false, "a host enable survives the next refill")
+
+  for (const side of ["b", "c", "d"]) pick(document.querySelector(`#make-${side}`), "audi")
+  await waitFor(() => ["b", "c", "d"].every((side) => document.querySelector(`#model-${side}`).options.length >= 4))
+
+  year("b").disabled = true
+  pick(document.querySelector("#model-b"), "a3")
+  assert.equal(year("b").disabled, true, "a host disable survives the next refill")
+  b.destroy()
+  assert.equal(year("b").disabled, true, "destroy never re-enables what the host disabled")
+
+  pick(document.querySelector("#model-c"), "q7")
+  assert.equal(year("c").disabled, true)
+  c.destroy()
+  instances = instances.filter((candidate) => candidate !== b && candidate !== c)
+  assert.equal(year("c").disabled, false, "destroy undoes the widget's own disabling")
+
+  pick(document.querySelector("#model-d"), "q7")
+  assert.deepEqual(optionValues(year("d")), ["", "other"])
+  assert.equal(year("d").disabled, false, "Other must stay choosable")
+})
+
+test("the previous make's models never date a model during the next make's fetch", async () => {
+  const document = installDOM(`<select id="make"></select><select id="model"></select><select id="year"></select>`)
+  const base = apiBase("year-between")
+  global.fetch = async (url) => {
+    if (url.includes("/audi/models")) {
+      return jsonResponse({ models: [{ name: "A3", slug: "a3", years_on_record: { first: 2018, last: 2021 } }] })
+    }
+    if (url.includes("/bmw/models")) return new Promise(() => {}) // still loading
+    return jsonResponse({ makes: [{ name: "Audi", slug: "audi" }, { name: "BMW", slug: "bmw" }] })
+  }
+
+  attach({ key: "year-between-key", apiBase: base, make: "#make", model: "#model", year: "#year", attribution: false })
+  await waitFor(() => document.querySelector("#make").options.length === 3)
+  pick(document.querySelector("#make"), "audi")
+  await waitFor(() => document.querySelector("#model").options.length === 2)
+  pick(document.querySelector("#make"), "bmw")
+
+  // Host code injecting an option mid-fetch (an edit form restoring its
+  // saved model, say) must not be dated from Audi's list.
+  const model = document.querySelector("#model")
+  model.add(new Option("A3", "a3"))
+  pick(model, "a3")
+  assert.equal(document.querySelector("#year").options[1].value, String(new Date().getFullYear()))
+})
