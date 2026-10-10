@@ -14,7 +14,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.1.4"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.2.0"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -45,6 +45,7 @@ VehiclesDropdown.attach({
   key: "vdb_pk_…",        // required — your publishable key
   make: "#make",           // required — <select> element or selector
   model: "#model",         // optional — the dependent model <select>
+  year: "#year",           // optional — the model-year <select> (needs `model`)
 
   kind: "car",             // only one kind: car, motorcycle, moped, van, truck, bus
   country: "de",           // only vehicles evidenced in a register country
@@ -52,6 +53,8 @@ VehiclesDropdown.attach({
   topMakes: 40,            // only the N most-registered makes, best first (default: all)
   initialMake: "audi",     // preselect a make on load (slug or name)
   initialModel: "a3",      // preselect a model once its make's models load
+  initialYear: 2019,       // preselect a year once its model's years fill
+  yearFallback: "range",   // a model with no register span: "range" (default) or "none"
   values: "slug",          // option values: "slug" (default) or "name"
   includeOther: true,      // append "Other / not listed" — pickers should never dead-end
 
@@ -60,14 +63,34 @@ VehiclesDropdown.attach({
 
   placeholderMake: "Make",
   placeholderModel: "Model",
+  placeholderYear: "Year",
   attribution: true,       // the CC-BY credit line (keep it on — see below)
 
-  onChange: ({ make, model }) => {},
+  onChange: ({ make, model, year }) => {}, // `year` only when a year select is attached
   onError: (error) => {}
 })
 ```
 
-`attach` returns an instance with `.value` (`{ make, model }`) and `.destroy()`.
+`attach` returns an instance with `.value` (`{ make, model }`, plus `year` with a year select) and `.destroy()`.
+
+### Model year
+
+Booking and quote forms ask for the year, so the widget can fill a third `<select>`:
+
+```js
+VehiclesDropdown.attach({ key: "vdb_pk_your_key", make: "#make", model: "#model", year: "#year" })
+```
+
+Picking a model fills the year select from that model's span, newest first (most bookings are for recent cars); changing the make clears model and year together. `onChange` then reports `{ make, model, year }`, where `year` is a number, `null` when nothing is picked, or `"other"` for the `includeOther` escape hatch, exactly like make and model. Without `year`, nothing changes: the payload stays `{ make, model }`.
+
+The years are register years, not production years: the span runs from the first to the latest year the official registers have the model on record, which can differ from the factory's own dates.
+
+About one model in eight has no span on record (and an "Other / not listed" model never has one). `yearFallback` decides what those models get:
+
+- `"range"` (default): the current year back to 40 years ago. The year field never dead-ends, so a customer whose model the registers cannot date can still book.
+- `"none"`: the placeholder only (plus Other with `includeOther`), and the year select is disabled, for forms that would rather not offer years the registers cannot back up.
+
+No extra request is made: the spans come with the model list the widget already loads.
 
 ### Logos
 
@@ -94,7 +117,7 @@ npm ci
 npm test
 ```
 
-The test suite runs the published UMD artifact in a real DOM implementation and covers dependent loading, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, and object-URL cleanup.
+The test suite runs the published UMD artifact in a real DOM implementation and covers dependent loading, the year step and its fallbacks, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, and object-URL cleanup.
 
 ## License
 

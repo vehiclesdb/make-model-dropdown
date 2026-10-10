@@ -1,6 +1,6 @@
 {
   "name": "make-model-dropdown",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Car make and model dropdown for any web page. A dependent make/model picker with live vehicle data from the VehiclesDB API: 14,000+ models, 850+ makes, cars and motorcycles to trucks and buses, from official registers of 14 countries. Zero dependencies.",
   "keywords": [
     "car make model dropdown",

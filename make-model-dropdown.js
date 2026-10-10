@@ -4,7 +4,8 @@
  *
  * A dependent make → model picker for any web page, powered by the VehiclesDB
  * API: 14,000+ models across 850+ makes (cars, motorcycles, mopeds, vans,
- * trucks, buses), reconciled from official registers of 14 countries.
+ * trucks, buses), reconciled from official registers of 14 countries. An
+ * optional third step picks the model year.
  *
  * Zero dependencies. No build step. MIT licensed.
  * Data: CC-BY 4.0 (identity layer) — the widget renders attribution for you.
@@ -23,6 +24,8 @@
     topMakes: null,        // e.g. 40 — only the N most-registered makes, best first
     initialMake: null,     // slug (or name) preselected on load, e.g. "audi"
     initialModel: null,    // slug (or name) preselected once its make's models load
+    initialYear: null,     // e.g. 2019 — preselected once its model's years fill
+    yearFallback: "range", // a model with no register span: "range" | "none"
     values: "slug",        // what option values hold: "slug" | "name"
     includeOther: false,   // append an "Other / not listed" escape hatch
     logos: false,          // render make logos (combobox mode only)
@@ -30,10 +33,15 @@
     attribution: true,     // "Vehicle data by VehiclesDB" line (CC-BY credit)
     placeholderMake: "Make",
     placeholderModel: "Model",
+    placeholderYear: "Year",
     requiredMessage: "Please select a vehicle make.", // validity message on a required make field
-    onChange: null,        // ({ make, model }) => {}
+    onChange: null,        // ({ make, model }) => {} — plus `year` when a year select is attached
     onError: null          // (error) => {}
   }
+
+  // How far back `yearFallback: "range"` reaches: the current year down to
+  // forty years ago covers the cars a garage actually sees on its ramps.
+  const FALLBACK_YEARS = 40
 
   // In-page caches — the dataset is immutable per release, so one fetch per
   // URL per pageview is the right amount of network.
@@ -132,6 +140,24 @@
     select.add(new Option("Other / not listed", "other"))
   }
 
+  // A model's register span, or null. `years_on_record` reached the API
+  // after the widget did, so a missing key (older responses, mocks) means
+  // the same as an explicit null — and so does anything that is not a sane
+  // {first, last} pair. Never trust a span enough to render nonsense.
+  function yearSpan(model) {
+    const span = model && model.years_on_record
+    if (!span || !Number.isInteger(span.first) || !Number.isInteger(span.last)) return null
+    return span.first <= span.last ? span : null
+  }
+
+  // Years as fillSelect items, NEWEST FIRST: a garage books a recent car far
+  // more often than a classic, so the likely answer sits at the top.
+  function yearItems(first, last) {
+    const items = []
+    for (let year = last; year >= first; year -= 1) items.push({ name: String(year), slug: String(year) })
+    return items
+  }
+
   function attributionLine(container) {
     const p = document.createElement("p")
     p.className = "vdb-attribution"
@@ -175,6 +201,21 @@
       if (!this.config.initialModel && this.modelSelect?.value) {
         this.config.initialModel = this.modelSelect.value
       }
+      // The year depends on the model, so a year select without one has
+      // nothing to fill from — say so now, not with a silently empty field.
+      this.yearSelect = this.config.year ? resolveEl(this.config.year, "year") : null
+      if (this.yearSelect && !this.modelSelect) {
+        throw new Error("VehiclesDropdown: year needs a model <select> to depend on")
+      }
+      if (this.yearSelect && (this.yearSelect === this.makeSelect || this.yearSelect === this.modelSelect)) {
+        throw new Error("VehiclesDropdown: year must be a different <select> element from make and model")
+      }
+      if (!this.config.initialYear && this.yearSelect?.value) {
+        this.config.initialYear = this.yearSelect.value
+      }
+      // `yearFallback: "none"` disables the year select; remember the host's
+      // own setting so re-enabling (and destroy) never overrides it.
+      this.yearDisabled = this.yearSelect ? this.yearSelect.disabled : false
       this.destroyed = false
       this.logoUrls = new Map()
       this.objectUrls = new Set()
@@ -183,17 +224,20 @@
         this.combobox?.sync()
         this.makeChanged()
       }
-      this.handleModelChange = () => { this.notify() }
+      this.handleModelChange = () => { this.modelChanged() }
+      this.handleYearChange = () => { this.notify() }
       this.makeSelect.addEventListener("change", this.handleMakeChange)
       if (this.modelSelect) this.modelSelect.addEventListener("change", this.handleModelChange)
+      if (this.yearSelect) this.yearSelect.addEventListener("change", this.handleYearChange)
       this.form = this.makeSelect.form
       this.handleFormReset = () => {
         // The reset event fires before the browser restores form controls.
         // Wait one task, then rebuild the dependent options for the restored
-        // make and reapply the configured/server-rendered initial model.
+        // make and reapply the configured/server-rendered initial model and year.
         setTimeout(() => {
           if (this.destroyed) return
           this.initialModelApplied = false
+          this.initialYearApplied = false
           this.combobox?.sync()
           this.makeChanged()
         }, 0)
@@ -202,7 +246,7 @@
 
       if (this.config.search || this.config.logos) this.enhance()
       if (this.config.attribution) {
-        const anchor = (this.modelSelect || this.makeSelect).parentElement || this.makeSelect
+        const anchor = (this.yearSelect || this.modelSelect || this.makeSelect).parentElement || this.makeSelect
         this.attributionEl = attributionLine(anchor)
       }
 
@@ -256,9 +300,12 @@
       // make, so reporting {make: "suzuki", model: "golf"} for the moment
       // between the change and the fetch is not a lag, it is a wrong answer —
       // and onChange consumers write it straight into their form state.
+      // The year belongs to the old model, so it goes with it.
+      this.models = null
       if (this.modelSelect) {
         fillSelect(this.modelSelect, this.config.placeholderModel, [], this.config, "")
       }
+      if (this.yearSelect) this.fillYears()
       this.notify()
       if (this.destroyed) return
       if (!this.modelSelect) return
@@ -281,6 +328,10 @@
         const url = `${this.api}/makes/${encodeURIComponent(slug)}/models?${params}`
         const data = await fetchJSON(url, this.config.key, "models")
         if (this.destroyed || this.makeSelect.value !== makeValue) return
+        // The list and the select it fills are swapped TOGETHER, past the
+        // stale-response guard: the year step reads its spans from this list,
+        // so it can only ever describe the models actually on screen.
+        this.models = data.models
         fillSelect(this.modelSelect, this.config.placeholderModel, data.models, this.config, "")
         if (this.config.includeOther) appendOther(this.modelSelect)
 
@@ -297,11 +348,68 @@
             Array.from(this.modelSelect.options).forEach((option) => {
               option.defaultSelected = option.value === this.modelSelect.value
             })
-            this.notify()
+            this.modelChanged()
           }
         }
       } catch (error) {
         if (!this.destroyed && this.makeSelect.value === makeValue) this.fail(error)
+      }
+    }
+
+    modelChanged() {
+      // Same rule as the make: refill the year for THIS model before
+      // announcing, so no payload ever pairs a model with another one's year.
+      if (this.yearSelect) this.fillYears()
+      this.notify()
+    }
+
+    // The year step makes no request: the spans ride on the models list the
+    // model step already fetched (this.models). So its only race is the
+    // model select itself — read its value NOW, at fill time, never from a
+    // value captured earlier, and look it up in the list that filled it.
+    fillYears() {
+      const select = this.yearSelect
+      const modelValue = this.modelSelect.value
+      select.disabled = this.yearDisabled
+      if (!modelValue) {
+        fillSelect(select, this.config.placeholderYear, [], this.config, "")
+        return
+      }
+
+      // "Other / not listed" has no span by definition; it takes the
+      // fallback like any other model the registers cannot date.
+      const model = modelValue === "other"
+        ? null
+        : this.models?.find((m) => optionValue(this.config, m) === modelValue)
+      const span = yearSpan(model)
+      // THE DEFAULT IS A RANGE, NOT A DEAD END. About one model in eight has
+      // no register span, and a booking form whose year field goes blank for
+      // that customer is a lost booking; the picker should never dead-end.
+      // "none" is the opt-out for forms that would rather ask nothing than
+      // offer years the registers cannot vouch for.
+      const current = new Date().getFullYear()
+      const none = !span && this.config.yearFallback === "none"
+      const items = span ? yearItems(span.first, span.last)
+        : none ? []
+        : yearItems(current - FALLBACK_YEARS, current)
+      fillSelect(select, this.config.placeholderYear, items, this.config, "")
+      if (this.config.includeOther) appendOther(select)
+      if (none) select.disabled = true
+
+      // The preselected year, applied exactly once and only to its intended
+      // model — after that the person is driving.
+      const wantedModel = this.config.initialModel
+      const intendedInitialModel = !wantedModel || modelValue === wantedModel ||
+        model?.slug === wantedModel || model?.name === wantedModel
+      if (this.config.initialYear && !this.initialYearApplied && intendedInitialModel) {
+        this.initialYearApplied = true
+        const wanted = String(this.config.initialYear)
+        if (!select.disabled && Array.from(select.options).some((option) => option.value && option.value === wanted)) {
+          select.value = wanted
+          Array.from(select.options).forEach((option) => {
+            option.defaultSelected = option.value === select.value
+          })
+        }
       }
     }
 
@@ -623,10 +731,18 @@
     }
 
     get value() {
-      return {
+      const value = {
         make: this.makeSelect.value || null,
         model: this.modelSelect ? (this.modelSelect.value || null) : null
       }
+      // `year` exists only when a year select does: {make, model} consumers
+      // keep the exact shape they were written against. A year is a number;
+      // the escape hatch reports "other" like make and model do.
+      if (this.yearSelect) {
+        const year = this.yearSelect.value
+        value.year = !year ? null : year === "other" ? "other" : Number(year)
+      }
+      return value
     }
 
     destroy() {
@@ -634,6 +750,10 @@
       this.destroyed = true
       this.makeSelect.removeEventListener("change", this.handleMakeChange)
       if (this.modelSelect) this.modelSelect.removeEventListener("change", this.handleModelChange)
+      if (this.yearSelect) {
+        this.yearSelect.removeEventListener("change", this.handleYearChange)
+        this.yearSelect.disabled = this.yearDisabled
+      }
       this.form?.removeEventListener("reset", this.handleFormReset)
       if (this.combobox) this.combobox.destroy()
       if (this.attributionEl) this.attributionEl.remove()
@@ -645,6 +765,6 @@
 
   return {
     attach(options) { return new Instance(options) },
-    version: "0.1.4"
+    version: "0.2.0"
   }
 })
