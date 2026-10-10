@@ -57,6 +57,7 @@ VehiclesDropdown.attach({
   yearFallback: "range",   // a model with no register span: "range" (default) or "none"
   values: "slug",          // option values: "slug" (default) or "name"
   includeOther: true,      // append "Other / not listed" — pickers should never dead-end
+  otherLabel: "Other / not listed", // its text, to translate; the value is always "other"
 
   search: true,            // searchable combobox instead of a plain select
   logos: true,             // make logos in the list (search mode; free key feature)

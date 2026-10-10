@@ -28,6 +28,7 @@
     yearFallback: "range", // a model with no register span: "range" | "none"
     values: "slug",        // what option values hold: "slug" | "name"
     includeOther: false,   // append an "Other / not listed" escape hatch
+    otherLabel: "Other / not listed", // its text; the option value stays "other"
     logos: false,          // render make logos (combobox mode only)
     search: false,         // searchable combobox instead of a plain <select>
     attribution: true,     // "Vehicle data by VehiclesDB" line (CC-BY credit)
@@ -141,8 +142,10 @@
     }
   }
 
-  function appendOther(select) {
-    select.add(new Option("Other / not listed", "other"))
+  // The escape hatch's TEXT is the host's to translate; its VALUE is the
+  // API contract ("other" in every payload, whatever the page's language).
+  function appendOther(select, config) {
+    select.add(new Option(config.otherLabel, "other"))
   }
 
   // A model's register span, or null. `years_on_record` reached the API
@@ -271,7 +274,7 @@
         this.makes = data.makes
         const preselected = this.makeSelect.value
         fillSelect(this.makeSelect, this.config.placeholderMake, data.makes, this.config)
-        if (this.config.includeOther) appendOther(this.makeSelect)
+        if (this.config.includeOther) appendOther(this.makeSelect, this.config)
         if (this.combobox) this.combobox.setItems(data.makes)
 
         // The preselected make (slug or name, forgiving): set the form value
@@ -321,7 +324,7 @@
 
       const makeValue = this.makeSelect.value
       if (!makeValue || makeValue === "other") {
-        if (makeValue === "other" && this.config.includeOther) appendOther(this.modelSelect)
+        if (makeValue === "other" && this.config.includeOther) appendOther(this.modelSelect, this.config)
         return
       }
 
@@ -342,7 +345,7 @@
         // so it can only ever describe the models actually on screen.
         this.models = data.models
         fillSelect(this.modelSelect, this.config.placeholderModel, data.models, this.config, "")
-        if (this.config.includeOther) appendOther(this.modelSelect)
+        if (this.config.includeOther) appendOther(this.modelSelect, this.config)
 
         // The preselected model, applied exactly once — after that the person
         // is driving, and a make change must reset the model like always.
@@ -402,7 +405,7 @@
         : none ? []
         : yearItems(current - FALLBACK_YEARS, current)
       fillSelect(select, this.config.placeholderYear, items, this.config, "")
-      if (this.config.includeOther) appendOther(select)
+      if (this.config.includeOther) appendOther(select, this.config)
 
       // The preselected year, applied exactly once and only to its intended
       // make and model — after that the person is driving.
@@ -429,7 +432,7 @@
     keepYear(wanted, modelValue) {
       const select = this.yearSelect
       if (!Array.from(select.options).some((option) => option.value && option.value === wanted)) {
-        if (wanted === "other") appendOther(select)
+        if (wanted === "other") appendOther(select, this.config)
         else if (/^\d+$/.test(wanted)) {
           const before = Array.from(select.options).find((option) =>
             option.value === "other" || (option.value && Number(option.value) < Number(wanted)))
@@ -644,7 +647,7 @@
         shown = matches.slice(0, 50)
         // The escape hatch rides along unfiltered: a picker should never
         // dead-end, least of all for the person whose make is not listed.
-        if (self.config.includeOther) shown = shown.concat({ name: "Other / not listed", value: "other" })
+        if (self.config.includeOther) shown = shown.concat({ name: self.config.otherLabel, value: "other" })
         active = -1
         input.removeAttribute("aria-activedescendant")
         list.replaceChildren(...shown.map(row))
@@ -653,7 +656,7 @@
 
       function selectedItem() {
         if (select.value === "other" && self.config.includeOther) {
-          return { name: "Other / not listed", value: "other" }
+          return { name: self.config.otherLabel, value: "other" }
         }
         return items.find((item) => optionValue(self.config, item) === select.value)
       }
