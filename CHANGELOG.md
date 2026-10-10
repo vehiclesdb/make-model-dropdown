@@ -8,3 +8,4 @@
 - Older API responses without `years_on_record`, and spans outside 1886 to next year, are handled the same as `null`.
 - A host-supplied year outside the model's span is kept (inserted in order and selected, with one `console.warn`), never dropped.
 - The widget disables the year select only for `yearFallback: "none"` with nothing to choose (with `includeOther`, Other stays choosable), and only ever undoes its own disabling.
+- New option `otherLabel` (default `"Other / not listed"`): the text of the `includeOther` row on make, model and year, for pages in other languages. The option value stays `"other"`.

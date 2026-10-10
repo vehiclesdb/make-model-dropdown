@@ -836,6 +836,69 @@ test("Other / not listed reaches the year step and never strands it", async () =
   assert.deepEqual(changes.at(-1), { make: "other", model: null, year: null })
 })
 
+test("otherLabel translates the escape hatch on every select; its value stays \"other\"", async () => {
+  const document = installDOM(`
+    <select id="make"></select><select id="model"></select><select id="year"></select>
+    <select id="make-es"></select><select id="model-es"></select><select id="year-es"></select>
+  `)
+  const base = apiBase("other-label")
+  const changes = []
+  global.fetch = async (url) => new URL(url).pathname.endsWith("/models")
+    ? jsonResponse({ models: [{ name: "A3", slug: "a3", years_on_record: { first: 2020, last: 2021 } }] })
+    : jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+  const lastText = (select) => select.options[select.options.length - 1].textContent
+
+  attach({
+    key: "other-label-key", apiBase: base, make: "#make", model: "#model", year: "#year",
+    includeOther: true, attribution: false
+  })
+  attach({
+    key: "other-label-key", apiBase: base, make: "#make-es", model: "#model-es", year: "#year-es",
+    includeOther: true, otherLabel: "Otra / no aparece", attribution: false,
+    onChange(value) { changes.push(value) }
+  })
+  await waitFor(() => document.querySelector("#make").options.length === 3 &&
+    document.querySelector("#make-es").options.length === 3)
+
+  for (const [suffix, label] of [["", "Other / not listed"], ["-es", "Otra / no aparece"]]) {
+    const make = document.querySelector(`#make${suffix}`)
+    const model = document.querySelector(`#model${suffix}`)
+    const year = document.querySelector(`#year${suffix}`)
+    pick(make, "audi")
+    await waitFor(() => model.options.length === 3)
+    pick(model, "a3")
+    assert.deepEqual(optionValues(year), ["", "2021", "2020", "other"])
+    for (const select of [make, model, year]) assert.equal(lastText(select), label)
+
+    // The value is the API contract, whatever the page's language.
+    pick(make, "other")
+    assert.deepEqual(optionValues(model), ["", "other"])
+    assert.equal(lastText(model), label)
+  }
+  assert.deepEqual(changes.at(-1), { make: "other", model: null, year: null })
+})
+
+test("otherLabel names the Other row in the searchable combobox too", async () => {
+  const document = installDOM(`<select id="make"></select>`)
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {}
+  const base = apiBase("other-label-combobox")
+  global.fetch = async () => jsonResponse({ makes: [{ name: "Audi", slug: "audi" }] })
+
+  attach({
+    key: "other-label-combobox-key", apiBase: base, make: "#make", search: true,
+    includeOther: true, otherLabel: "Inna / brak na liście", attribution: false
+  })
+  await waitFor(() => document.querySelector("#make").options.length === 3)
+  const input = document.querySelector("[role=combobox]")
+  input.dispatchEvent(new Event("focus"))
+  const rows = Array.from(document.querySelectorAll("[role=option]"))
+  assert.equal(rows.at(-1).textContent, "Inna / brak na liście")
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }))
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+  assert.equal(document.querySelector("#make").value, "other")
+  assert.equal(input.value, "Inna / brak na liście")
+})
+
 test("a widget without a year select keeps the exact {make, model} contract", async () => {
   const document = installDOM(`<select id="make"></select><select id="model"></select><select id="year"></select>`)
   const base = apiBase("year-absent")
