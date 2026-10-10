@@ -4,7 +4,7 @@
  *
  * A dependent make → model picker for any web page, powered by the VehiclesDB
  * API: 14,000+ models across 850+ makes (cars, motorcycles, mopeds, vans,
- * trucks, buses), reconciled from official registers of 14 countries.
+ * trucks, buses), reconciled from official registers of 15 countries.
  *
  * Zero dependencies. No build step. MIT licensed.
  * Data: CC-BY 4.0 (identity layer) — the widget renders attribution for you.
