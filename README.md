@@ -51,8 +51,8 @@ VehiclesDropdown.attach({
   country: "de",           // only vehicles evidenced in a register country
   order: "popular",        // models by real-world registrations (default) or "alphabetical"
   topMakes: 40,            // only the N most-registered makes, best first (default: all)
-  initialMake: "audi",     // preselect a make on load (slug or name)
-  initialModel: "a3",      // preselect a model once its make's models load
+  initialMake: "audi",     // preselect a make on load (slug, name or alias: "VW", "citroen")
+  initialModel: "a3",      // preselect a model once its make's models load (see "Matching")
   initialYear: 2019,       // preselect a year once its model's years fill
   yearFallback: "range",   // a model with no register span: "range" (default) or "none"
   values: "slug",          // option values: "slug" (default) or "name"
@@ -94,6 +94,18 @@ About one model in eight has no span on record (and an "Other / not listed" mode
 A year the host supplies (`initialYear`, or a server-rendered selected option in an edit form) is never dropped: if it falls outside the model's span it is added to the list in its place, selected, and logged once with `console.warn`.
 
 No extra request is made: the spans come with the model list the widget already loads.
+
+### Matching typed and stored names
+
+The widget matches text the way every VehiclesDB surface does (the Ruby gem, the API, the SDKs): one contract, so a stored value picks the same record everywhere. Names are compared after the same normalization (accents dropped, case and punctuation ignored, so `citroen` is Citroën and `mercedes benz` is Mercedes-Benz), and spacing is ignored when that still lands on one name (`XCeed` is the X Ceed).
+
+- **Search box** (`search: true`): a make shows up when its name or one of its published aliases contains what was typed. `vw` lists Volkswagen. Exact answers come first, then name matches, then alias-only matches.
+- **`initialMake`**: the make's slug, name or a published alias.
+- **`initialModel`**: the model's slug or name (BMW's Spanish `Serie 3` is the 3 Series), then a published alias (`Vette` is the Corvette), then a curated form: a spelling registries and people write for that model, such as `Focus C-Max` for the C-Max. So a free-text model saved by an older form usually preselects the right row.
+
+When the data says a value could mean two records, nothing is preselected. Typos are never corrected here: a picker that quietly fills in a guess writes a wrong answer into someone's form. (Resolve messy strings server-side with the API's `/resolve`, which reports how sure it is.)
+
+The same functions are exported for your own typeahead or for mapping stored values: `VehiclesDropdown.norm(text)`, `VehiclesDropdown.findMake(makes, text)` and `VehiclesDropdown.findModel(models, text)`, where `makes` and `models` are the lists the API returns. Each returns the matching item or `null`.
 
 ### Logos
 
