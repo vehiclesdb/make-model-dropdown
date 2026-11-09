@@ -133,6 +133,114 @@
     return config.values === "name" ? item.name : item.slug
   }
 
+  // ---- Matching typed text to a make or model ------------------------------
+  // VehiclesDB's resolution contract (RESOLUTION.md in the dataset repo) is
+  // one set of rules for every surface: the Ruby gem, the API, the SDKs and
+  // this widget. A stored "Citroen" or "VW" or "Focus C-Max" must pick the
+  // same record here that the API resolves it to, so this is a port of the
+  // contract's strict rungs, not a widget-flavoured approximation. Only the
+  // curated rungs run here (name/slug, published aliases, curated forms):
+  // typo correction is a guess, and a picker that silently preselects a
+  // guess writes a wrong answer into someone's form.
+
+  // The contract's one normalization: NFKD, drop combining marks, lowercase,
+  // every run of non-[a-z0-9] becomes one space. "Škoda" → "skoda",
+  // "Mercedes-Benz" → "mercedes benz", "Lynk & Co" → "lynk co".
+  function norm(value) {
+    return String(value == null ? "" : value).normalize("NFKD").replace(/\p{Mn}+/gu, "")
+      .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+  }
+
+  // A native-script alias (比亚迪, 현대) normalizes to nothing; like the gem,
+  // it is then compared by its trimmed, lowercased raw text instead.
+  function key(value) {
+    return norm(value) || `raw:${String(value == null ? "" : value).trim().toLowerCase()}`
+  }
+
+  // Spacing-blind: "XCeed" is the dataset's "X Ceed", "A 5" is the "A5".
+  function squash(k) { return k.replace(/ /g, "") }
+
+  // "Serie 3" is how BMW sells the 3 Series in Spain and Italy ("Série" in
+  // France normalizes the same).
+  const LOCALIZED_SERIES = /^serie (\w+)$/
+
+  // Run rungs strongest first; the first that finds anything decides. Hits
+  // on one record (a car and a van sharing a slug are one record to a
+  // picker) answer; hits on two records are AMBIGUOUS and stop the ladder,
+  // because a weaker rung must never overrule data that says "either".
+  const AMBIGUOUS = []
+  function firstRung(rungs) {
+    for (const rung of rungs) {
+      const hits = rung()
+      if (hits === AMBIGUOUS) return null
+      if (!hits.length) continue
+      const slugs = new Set(hits.map((item) => item.slug))
+      if (slugs.size > 1) return null
+      return hits.find((item) => item.kind === "car") || hits[0]
+    }
+    return null
+  }
+
+  function fieldHits(items, field, k) {
+    const tight = squash(k)
+    const exact = items.filter((item) => (item[field] || []).some((v) => key(v) === k))
+    if (exact.length) return exact
+    return items.filter((item) => (item[field] || []).some((v) => squash(key(v)) === tight))
+  }
+
+  // A make by slug or name, then by a published alias ("VW", "Merc").
+  function findMake(makes, wanted) {
+    const k = key(wanted)
+    if (!makes || k === "raw:") return null
+    return firstRung([
+      () => makes.filter((m) => key(m.slug) === k || key(m.name) === k),
+      () => fieldHits(makes, "aliases", k)
+    ])
+  }
+
+  // A model of one make: name or slug (then spacing-blind, then "Serie N"),
+  // then a published alias, then a curated form, the registry spelling the
+  // dataset folds into the record ("Focus C-Max" is the C-Max).
+  function findModel(models, wanted) {
+    const k = key(wanted)
+    if (!models || k === "raw:") return null
+    const named = (q) => () => {
+      const exact = models.filter((m) => key(m.slug) === q || key(m.name) === q)
+      if (exact.length) return exact
+      // Spacing-blind only counts when it lands on ONE name: "a 5" must not
+      // choose between an "A5" and an "A 5" if a make had both.
+      const loose = models.filter((m) => squash(key(m.name)) === squash(q))
+      return new Set(loose.map((m) => key(m.name))).size > 1 ? AMBIGUOUS : loose
+    }
+    const series = k.replace(LOCALIZED_SERIES, "$1 series")
+    return firstRung([
+      named(k),
+      ...(series !== k ? [ named(series) ] : []),
+      () => fieldHits(models, "aliases", k),
+      () => fieldHits(models, "forms", k)
+    ])
+  }
+
+  // The searchable list: every make whose name, slug or published alias
+  // contains what was typed, compared by `norm` and spacing-blind. Exact
+  // answers first, then name hits, then alias-only hits ("vw" lists
+  // Volkswagen), each group in the list's own order (popular or A to Z).
+  function filterItems(items, text) {
+    const needle = norm(text)
+    if (!needle) return items
+    const tight = squash(needle)
+    const groups = [ [], [], [], [] ]
+    for (const item of items) {
+      const names = [ norm(item.name), norm(item.slug) ]
+      const aliases = (item.aliases || []).map(norm).filter(Boolean)
+      if (names.concat(aliases).some((n) => n === needle || squash(n) === tight)) groups[0].push(item)
+      else if (names.some((n) => n.includes(needle))) groups[1].push(item)
+      else if (names.some((n) => squash(n).includes(tight))) groups[2].push(item)
+      else if (aliases.some((n) => n.includes(needle) || squash(n).includes(tight))) groups[3].push(item)
+    }
+    return groups.flat()
+  }
+
   function fillSelect(select, placeholder, items, config, selected) {
     const previous = selected !== undefined ? selected : select.value
     select.replaceChildren(new Option(placeholder, "", previous === "", previous === ""))
@@ -277,11 +385,13 @@
         if (this.config.includeOther) appendOther(this.makeSelect, this.config)
         if (this.combobox) this.combobox.setItems(data.makes)
 
-        // The preselected make (slug or name, forgiving): set the form value
-        // and let the combobox show the name and the badge.
+        // The preselected make, by the resolution contract (slug, name or a
+        // published alias, by `norm`): a stored "Citroen" or "VW" lands on
+        // its make. Resolved even when the host already rendered a make, so
+        // the model and year steps can tell whether that is the intended one.
+        this.initialMakeItem = this.config.initialMake ? findMake(data.makes, this.config.initialMake) : null
         if (this.config.initialMake && !this.makeSelect.value) {
-          const wanted = this.config.initialMake
-          const item = data.makes.find((m) => m.slug === wanted || m.name === wanted)
+          const item = this.initialMakeItem
           if (item) {
             this.makeSelect.value = optionValue(this.config, item)
             Array.from(this.makeSelect.options).forEach((option) => {
@@ -349,12 +459,14 @@
 
         // The preselected model, applied exactly once — after that the person
         // is driving, and a make change must reset the model like always.
-        const intendedInitialMake = !this.config.initialMake ||
-          make?.slug === this.config.initialMake || make?.name === this.config.initialMake
-        if (this.config.initialModel && !this.initialModelApplied && intendedInitialMake) {
+        // Matched by the resolution contract like the make: name or slug
+        // (spacing-blind, "Serie 3"), a published alias, or a curated form,
+        // so a free-text "Focus C-Max" saved by an older form preselects the
+        // C-Max. Nothing is preselected when the data says it could be two.
+        if (this.config.initialModel && !this.initialModelApplied && this.isInitialMake(make)) {
           this.initialModelApplied = true
-          const wanted = this.config.initialModel
-          const match = data.models.find((m) => m.slug === wanted || m.name === wanted)
+          const match = findModel(data.models, this.config.initialModel)
+          this.initialModelItem = match
           if (match) {
             this.modelSelect.value = optionValue(this.config, match)
             Array.from(this.modelSelect.options).forEach((option) => {
@@ -366,6 +478,13 @@
       } catch (error) {
         if (!this.destroyed && this.makeSelect.value === makeValue) this.fail(error)
       }
+    }
+
+    // Is `make` the one `initialMake` names (or is there no initialMake)?
+    // Compared as resolved records, so "vw" and "volkswagen" agree.
+    isInitialMake(make) {
+      if (!this.config.initialMake) return true
+      return Boolean(make && this.initialMakeItem && make.slug === this.initialMakeItem.slug)
     }
 
     modelChanged() {
@@ -410,12 +529,10 @@
       // The preselected year, applied exactly once and only to its intended
       // make and model — after that the person is driving.
       const make = this.makes?.find((m) => optionValue(this.config, m) === this.makeSelect.value)
-      const wantedMake = this.config.initialMake
       const wantedModel = this.config.initialModel
-      const intendedInitialMake = !wantedMake || make?.slug === wantedMake || make?.name === wantedMake
       const intendedInitialModel = !wantedModel || modelValue === wantedModel ||
-        model?.slug === wantedModel || model?.name === wantedModel
-      if (this.config.initialYear && !this.initialYearApplied && intendedInitialMake && intendedInitialModel) {
+        (model && model.slug === this.initialModelItem?.slug)
+      if (this.config.initialYear && !this.initialYearApplied && this.isInitialMake(make) && intendedInitialModel) {
         this.initialYearApplied = true
         this.keepYear(String(this.config.initialYear), modelValue)
       }
@@ -640,11 +757,7 @@
       }
 
       function render(filter) {
-        const needle = (filter || "").trim().toLowerCase()
-        const matches = needle
-          ? items.filter((m) => m.name.toLowerCase().includes(needle))
-          : items
-        shown = matches.slice(0, 50)
+        shown = filterItems(items, filter).slice(0, 50)
         // The escape hatch rides along unfiltered: a picker should never
         // dead-end, least of all for the person whose make is not listed.
         if (self.config.includeOther) shown = shown.concat({ name: self.config.otherLabel, value: "other" })
@@ -730,8 +843,9 @@
             return choose(shown[0])
           }
 
-          const needle = input.value.trim().toLowerCase()
-          const exact = needle && items.find((item) => item.name.toLowerCase() === needle)
+          // Text that names one make outright, by the same rules as
+          // preselection ("citroen", "VW"); a typo is not a choice.
+          const exact = findMake(items, input.value)
           if (exact) {
             event.preventDefault()
             return choose(exact)
@@ -817,6 +931,11 @@
 
   return {
     attach(options) { return new Instance(options) },
-    version: "0.2.0"
+    // The contract's matching, for hosts that build their own typeahead or
+    // need to map a stored value to a record the same way the widget does.
+    norm,
+    findMake,
+    findModel,
+    version: "0.3.0"
   }
 })

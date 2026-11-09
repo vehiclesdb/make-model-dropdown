@@ -12,7 +12,7 @@ test("the published browser script installs the documented global", () => {
 
   browser.window.eval(source)
 
-  assert.equal(browser.window.VehiclesDropdown.version, "0.2.0")
+  assert.equal(browser.window.VehiclesDropdown.version, "0.3.0")
   assert.equal(typeof browser.window.VehiclesDropdown.attach, "function")
   browser.window.close()
 })
@@ -1127,4 +1127,131 @@ test("the previous make's models never date a model during the next make's fetch
   model.add(new Option("A3", "a3"))
   pick(model, "a3")
   assert.equal(document.querySelector("#year").options[1].value, String(new Date().getFullYear()))
+})
+
+// ---- The resolution contract (vehiclesdb RESOLUTION.md) --------------------
+// The widget must pick the record the gem and the API resolve a string to.
+
+test("norm is the contract's one normalization", () => {
+  const { norm } = VehiclesDropdown
+  assert.equal(norm("Škoda"), "skoda")
+  assert.equal(norm("Citroën"), "citroen")
+  assert.equal(norm("Mercedes-Benz"), "mercedes benz")
+  assert.equal(norm("  C3 Aircross "), "c3 aircross")
+  assert.equal(norm("Lynk & Co"), "lynk co")
+  assert.equal(norm("MERCEDES-BENZ | SPRINTER"), "mercedes benz sprinter")
+  assert.equal(norm(null), "")
+  assert.equal(norm("比亚迪"), "")
+})
+
+const MAKES = [
+  { name: "Citroën", slug: "citroen" },
+  { name: "Volkswagen", slug: "volkswagen", aliases: ["VW", "Volkswagon"] },
+  { name: "Mercedes-Benz", slug: "mercedes-benz", aliases: ["Mercedes", "Merc"] },
+  { name: "BYD", slug: "byd", aliases: ["比亚迪"] },
+  { name: "Vauxhall", slug: "vauxhall", aliases: ["Merc"] } // a made-up clash
+]
+
+test("findMake: slug, name or published alias, by norm; ambiguity answers nothing", () => {
+  const { findMake } = VehiclesDropdown
+  assert.equal(findMake(MAKES, "citroen").slug, "citroen")
+  assert.equal(findMake(MAKES, "CITROËN").slug, "citroen")
+  assert.equal(findMake(MAKES, "vw").slug, "volkswagen")
+  assert.equal(findMake(MAKES, "mercedes benz").slug, "mercedes-benz")
+  assert.equal(findMake(MAKES, "比亚迪").slug, "byd", "a native-script alias matches on its raw text")
+  assert.equal(findMake(MAKES, "merc"), null, "an alias two makes publish is ambiguous")
+  assert.equal(findMake(MAKES, "Citroe"), null, "a prefix is not a make")
+  assert.equal(findMake(MAKES, "Volkswagn"), null, "no typo guessing in a picker")
+  assert.equal(findMake(MAKES, ""), null)
+  assert.equal(findMake(MAKES, "  "), null)
+})
+
+const FORD = [
+  { name: "C-Max", slug: "c-max", kind: "car", forms: ["Focus C-Max", "Focus C Max"] },
+  { name: "Focus", slug: "focus", kind: "car" },
+  { name: "Transit", slug: "transit", kind: "van" },
+  { name: "Transit", slug: "transit", kind: "truck" }
+]
+
+test("findModel: name/slug, spacing-blind, Serie N, alias, then form", () => {
+  const { findModel } = VehiclesDropdown
+  assert.equal(findModel(FORD, "Focus C-Max").slug, "c-max", "a curated form lands on its record")
+  assert.equal(findModel(FORD, "focus c max").slug, "c-max")
+  assert.equal(findModel(FORD, "Focus").slug, "focus", "a name beats any form that starts with it")
+  assert.equal(findModel(FORD, "cmax").slug, "c-max", "spacing-blind")
+  assert.equal(findModel(FORD, "Transit").slug, "transit", "a kind collision is one record, not ambiguity")
+  assert.equal(findModel(FORD, "Focu"), null, "no prefixes")
+
+  const kia = [{ name: "X Ceed", slug: "x-ceed" }, { name: "Ceed", slug: "ceed" }]
+  assert.equal(findModel(kia, "XCeed").slug, "x-ceed")
+
+  const bmw = [{ name: "3 Series", slug: "3-series" }, { name: "X3", slug: "x3" }]
+  assert.equal(findModel(bmw, "Serie 3").slug, "3-series")
+  assert.equal(findModel(bmw, "Série 3").slug, "3-series")
+
+  const chevrolet = [{ name: "Corvette", slug: "corvette", aliases: ["Vette"] }, { name: "Camaro", slug: "camaro" }]
+  assert.equal(findModel(chevrolet, "Vette").slug, "corvette")
+
+  const clash = [
+    { name: "A5", slug: "a5" }, { name: "A 5", slug: "a-5" },
+    { name: "One", slug: "one", forms: ["Same"] }, { name: "Two", slug: "two", forms: ["Same"] }
+  ]
+  assert.equal(findModel(clash, "a5").slug, "a5", "an exact name wins before spacing-blind")
+  assert.equal(findModel(clash, "a 5").slug, "a-5")
+  assert.equal(findModel(clash, "Same"), null, "a form on two records is ambiguous")
+})
+
+test("free-text initialMake and initialModel preselect by the contract", async () => {
+  const document = installDOM(`<select id="make"></select><select id="model"></select>`)
+  const base = apiBase("contract")
+  global.fetch = async (url) => {
+    if (url.includes("/makes/ford/models")) return jsonResponse({ models: FORD })
+    return jsonResponse({ makes: [{ name: "Ford", slug: "ford", aliases: ["Ford Motor"] }, ...MAKES] })
+  }
+  const changes = []
+  attach({
+    key: "contract-key", apiBase: base, make: "#make", model: "#model",
+    initialMake: "FORD MOTOR", initialModel: "Focus C-Max", attribution: false,
+    onChange: (value) => changes.push(value)
+  })
+  await waitFor(() => document.querySelector("#model").value === "c-max", "C-Max preselected")
+  assert.equal(document.querySelector("#make").value, "ford")
+  assert.deepEqual(changes.at(-1), { make: "ford", model: "c-max" })
+})
+
+test("a free-text initialMake without a curated answer selects nothing", async () => {
+  const document = installDOM(`<select id="make"></select><select id="model"></select>`)
+  const base = apiBase("contract-miss")
+  global.fetch = async () => jsonResponse({ makes: MAKES })
+  attach({ key: "miss-key", apiBase: base, make: "#make", model: "#model", initialMake: "merc", attribution: false })
+  await waitFor(() => document.querySelector("#make").options.length === MAKES.length + 1)
+  assert.equal(document.querySelector("#make").value, "", "an ambiguous alias must not pick one of its makes")
+})
+
+test("the combobox filters by norm, spacing-blind and by published aliases", async () => {
+  const document = installDOM(`<select id="make"></select>`)
+  const base = apiBase("contract-filter")
+  global.fetch = async () => jsonResponse({ makes: MAKES })
+  attach({ key: "filter-key", apiBase: base, make: "#make", search: true, attribution: false })
+  await waitFor(() => document.querySelector("#make").options.length === MAKES.length + 1)
+  const input = document.querySelector("[role=combobox]")
+  const rows = () => Array.from(document.querySelectorAll("[role=option]")).map((li) => li.textContent)
+  const type = (text) => {
+    input.value = text
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  }
+
+  type("citroen")
+  assert.deepEqual(rows(), ["Citroën"], "diacritics fold")
+  type("vw")
+  assert.deepEqual(rows(), ["Volkswagen"], "a published alias finds its make")
+  type("mercedesbenz")
+  assert.deepEqual(rows(), ["Mercedes-Benz"], "spacing-blind")
+  type("merc")
+  assert.deepEqual(rows(), ["Mercedes-Benz", "Vauxhall"], "name hits rank above alias-only hits")
+
+  type("VW")
+  // Enter on text that names one make outright commits it, alias or not.
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+  assert.equal(document.querySelector("#make").value, "volkswagen")
 })
