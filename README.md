@@ -1,6 +1,6 @@
 # Car, motorcycle and truck make and model dropdown
 
-**The make/model picker you stopped hand-maintaining.** `make-model-dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api) or, with no API key at all, from the open VehiclesDB dataset: **14,000+ models across 850+ makes**, six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from official national vehicle registers and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
+**The make/model picker you stopped hand-maintaining.** `make-model-dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api) or, with no API key at all, from the open VehiclesDB dataset: **every make and model in the dataset** (live counts on [vehiclesdb.com/makes](https://vehiclesdb.com/makes)), six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from official national vehicle registers and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
 
 Zero dependencies. No build step. Works with plain HTML forms, React, Vue, Rails (importmap + Stimulus included), anything that renders a `<select>`.
 
