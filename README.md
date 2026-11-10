@@ -115,7 +115,7 @@ VehiclesDropdown.attach({
   initialYear: 2019,       // preselect a year once its model's years fill
   yearFallback: "range",   // a model with no register span: "range" (default) or "none"
   values: "slug",          // option values: "slug" (default) or "name"
-  includeOther: true,      // append "Other / not listed" — pickers should never dead-end
+  includeOther: true,      // append "Other / not listed" — pickers should never dead-end (Other make → Other model)
   otherLabel: "Other / not listed", // its text, to translate
   otherValue: "other",     // its value (default "other"), e.g. the word your app stores
   keepUnknown: true,       // keep a stored value the list does not carry (default), see below
@@ -194,6 +194,11 @@ The combobox input inherits your `<select>`'s CSS classes, so it dresses like th
 ### Popularity, availability, kinds
 
 The data is the point. Every model carries a global popularity decile from real registration counts (`order: "popular"` puts the Golf first, not the 412), a per-country availability record (`country: "de"` drops what Germany has never registered), and a kind: `kind: "motorcycle"` gives you a motorbike picker with displacement-level names ("CBR600RR", not "CBR"), because that is how riders and registers both speak; `kind: "truck"` or `kind: "van"` gives fleet and logistics forms the commercial-vehicle picker they never had; `kind: "bus"` and `kind: "moped"` round out the six.
+
+## Related
+
+- [RESOLUTION.md](https://github.com/vehiclesdb/vehiclesdb/blob/main/RESOLUTION.md): the matching contract this widget, the Ruby gem, the API and the SDKs share. The kind-collision rule (§3a) arrived in vehiclesdb/vehiclesdb#397.
+- JS SDK [`@vehiclesdb/client`](https://github.com/vehiclesdb/vehiclesdb-js) (vehiclesdb/vehiclesdb-js#1) and [Python SDK](https://github.com/vehiclesdb/vehiclesdb-python) (vehiclesdb/vehiclesdb-python#1): the same rule server-side.
 
 ## Attribution
 

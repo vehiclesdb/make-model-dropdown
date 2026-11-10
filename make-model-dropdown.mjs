@@ -726,6 +726,12 @@ const VehiclesDropdown = (function () {
       if ((makeValue === this.config.otherValue && this.config.includeOther) || (!make && (this.makes || this.datasetMode))) {
         if (this.config.includeOther) appendOther(this.modelSelect, this.config)
         this.applyInitialModel(null, [])
+        // An Other make has one possible model, Other: choose it, so a
+        // required model field is satisfied and the year step can follow.
+        if (makeValue === this.config.otherValue && this.config.includeOther && !this.modelSelect.value) {
+          this.modelSelect.value = this.config.otherValue
+          this.modelChanged()
+        }
         return
       }
       const slug = make ? make.slug : makeValue

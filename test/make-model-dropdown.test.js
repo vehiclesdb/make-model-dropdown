@@ -830,10 +830,13 @@ test("Other / not listed reaches the year step and never strands it", async () =
   assert.equal(year.options[year.options.length - 1].value, "other")
   assert.deepEqual(changes.at(-1), { make: "audi", model: "other", year: null })
 
+  // An Other make has one model, Other, chosen for the person (0.4.0); its
+  // year takes the fallback range like any undated model.
   pick(make, "other")
   assert.deepEqual(optionValues(model), ["", "other"])
-  assert.deepEqual(optionValues(year), [""])
-  assert.deepEqual(changes.at(-1), { make: "other", model: null, year: null })
+  assert.equal(model.value, "other")
+  assert.equal(year.options[1].value, String(new Date().getFullYear()))
+  assert.deepEqual(changes.at(-1), { make: "other", model: "other", year: null })
 })
 
 test("otherLabel translates the escape hatch on every select; its value stays \"other\"", async () => {
@@ -875,7 +878,7 @@ test("otherLabel translates the escape hatch on every select; its value stays \"
     assert.deepEqual(optionValues(model), ["", "other"])
     assert.equal(lastText(model), label)
   }
-  assert.deepEqual(changes.at(-1), { make: "other", model: null, year: null })
+  assert.deepEqual(changes.at(-1), { make: "other", model: "other", year: null })
 })
 
 test("otherLabel names the Other row in the searchable combobox too", async () => {

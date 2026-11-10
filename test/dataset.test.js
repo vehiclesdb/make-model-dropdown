@@ -402,6 +402,17 @@ test("otherValue: an app's own word for Other round-trips a stored escape hatch"
   assert.equal($("#vid").value, "")
 })
 
+test("otherValue: picking the Other make chooses the Other model", async () => {
+  installDOM(`<select id="make"></select><select id="model"></select><input id="vid">`)
+  noFetch()
+  const instance = attach({ data: dataset(), make: "#make", model: "#model", idInput: "#vid", values: "name",
+    includeOther: true, otherLabel: "Otro", otherValue: "Otro" })
+  await waitFor(() => $("#make").options.length > 2)
+  pick($("#make"), "Otro")
+  assert.deepEqual(instance.value, { make: "Otro", model: "Otro", id: null })
+  assert.deepEqual(texts($("#model")), ["Model", "Otro"])
+})
+
 test("the combobox shows a kept make and mirrors the host's disabled", async () => {
   installDOM(`<select id="make"><option value="Tata" selected>Tata</option></select>`)
   noFetch()
