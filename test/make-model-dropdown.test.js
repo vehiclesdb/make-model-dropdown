@@ -12,7 +12,7 @@ test("the published browser script installs the documented global", () => {
 
   browser.window.eval(source)
 
-  assert.equal(browser.window.VehiclesDropdown.version, "0.3.0")
+  assert.equal(browser.window.VehiclesDropdown.version, require("../package.json").version)
   assert.equal(typeof browser.window.VehiclesDropdown.attach, "function")
   browser.window.close()
 })
@@ -558,7 +558,7 @@ test("focus plus Enter never overwrites a committed selection", async () => {
   assert.equal(input.value, "BMW")
 })
 
-test("a dropped server preselection announces itself instead of diverging silently", async () => {
+test("with keepUnknown: false, a dropped server preselection announces itself instead of diverging silently", async () => {
   const document = installDOM(`
     <select id="make"><option value="lada" selected>Lada</option></select>
   `)
@@ -569,7 +569,7 @@ test("a dropped server preselection announces itself instead of diverging silent
   const originalWarn = console.warn
   console.warn = (...parts) => warnings.push(parts.join(" "))
   try {
-    attach({ key: "drop-key", apiBase: base, make: "#make", attribution: false,
+    attach({ key: "drop-key", apiBase: base, make: "#make", attribution: false, keepUnknown: false,
       onChange(value) { changes.push(value) } })
     await waitFor(() => changes.length === 1)
   } finally {
@@ -830,10 +830,13 @@ test("Other / not listed reaches the year step and never strands it", async () =
   assert.equal(year.options[year.options.length - 1].value, "other")
   assert.deepEqual(changes.at(-1), { make: "audi", model: "other", year: null })
 
+  // An Other make has one model, Other, chosen for the person (0.4.0); its
+  // year takes the fallback range like any undated model.
   pick(make, "other")
   assert.deepEqual(optionValues(model), ["", "other"])
-  assert.deepEqual(optionValues(year), [""])
-  assert.deepEqual(changes.at(-1), { make: "other", model: null, year: null })
+  assert.equal(model.value, "other")
+  assert.equal(year.options[1].value, String(new Date().getFullYear()))
+  assert.deepEqual(changes.at(-1), { make: "other", model: "other", year: null })
 })
 
 test("otherLabel translates the escape hatch on every select; its value stays \"other\"", async () => {
@@ -875,7 +878,7 @@ test("otherLabel translates the escape hatch on every select; its value stays \"
     assert.deepEqual(optionValues(model), ["", "other"])
     assert.equal(lastText(model), label)
   }
-  assert.deepEqual(changes.at(-1), { make: "other", model: null, year: null })
+  assert.deepEqual(changes.at(-1), { make: "other", model: "other", year: null })
 })
 
 test("otherLabel names the Other row in the searchable combobox too", async () => {
@@ -950,9 +953,11 @@ test("initialYear never lands on a make or model it was not meant for", async ()
 
   // An initial model and no initial make: the make check passes for any
   // make, so only the model check stands between the Golf and the A3's year.
+  // (keepUnknown would keep "a3" on the Volkswagen as the stored value it
+  // is, and the year with it; this is about the matching alone.)
   attach({
     key: "year-intended-key", apiBase: base, make: "#make-a", model: "#model-a", year: "#year-a",
-    initialModel: "a3", initialYear: 2019, attribution: false
+    initialModel: "a3", initialYear: 2019, attribution: false, keepUnknown: false
   })
   // Without one: a Volkswagen is still not the Audi the year was meant for.
   attach({
@@ -1219,11 +1224,11 @@ test("free-text initialMake and initialModel preselect by the contract", async (
   assert.deepEqual(changes.at(-1), { make: "ford", model: "c-max" })
 })
 
-test("a free-text initialMake without a curated answer selects nothing", async () => {
+test("a free-text initialMake without a curated answer picks none of the makes", async () => {
   const document = installDOM(`<select id="make"></select><select id="model"></select>`)
   const base = apiBase("contract-miss")
   global.fetch = async () => jsonResponse({ makes: MAKES })
-  attach({ key: "miss-key", apiBase: base, make: "#make", model: "#model", initialMake: "merc", attribution: false })
+  attach({ key: "miss-key", apiBase: base, make: "#make", model: "#model", initialMake: "merc", attribution: false, keepUnknown: false })
   await waitFor(() => document.querySelector("#make").options.length === MAKES.length + 1)
   assert.equal(document.querySelector("#make").value, "", "an ambiguous alias must not pick one of its makes")
 })

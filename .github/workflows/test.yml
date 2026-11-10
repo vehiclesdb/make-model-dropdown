@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # The dataset release the conformance job runs against. Bump it when a new
+  # release changes RESOLUTION.md or conformance/resolve.json.
+  DATASET_TAG: v2026.11.2
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -20,4 +25,35 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: The ES module build matches the UMD source
+        run: node scripts/build-esm.js --check
       - run: npm test
+
+  conformance:
+    name: conformance (RESOLUTION.md, strict pair cases)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: vehiclesdb/vehiclesdb
+          ref: ${{ env.DATASET_TAG }}
+          path: .dataset
+          sparse-checkout: |
+            dist/vehicles.json
+            conformance
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Conformance cases through the widget
+        env:
+          VDB_DATA: ${{ github.workspace }}/.dataset/dist/vehicles.json
+          VDB_CONFORMANCE: ${{ github.workspace }}/.dataset/conformance/resolve.json
+        run: |
+          node --test test/conformance.test.js | tee "$RUNNER_TEMP/tap.txt"
+          # The cases must have run: a skip here is a failure.
+          grep -q '^# skipped 0$' "$RUNNER_TEMP/tap.txt"

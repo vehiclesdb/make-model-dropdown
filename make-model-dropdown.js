@@ -3,9 +3,10 @@
  * https://vehiclesdb.com/make-and-model-dropdown
  *
  * A dependent make → model picker for any web page, powered by the VehiclesDB
- * API: 14,000+ models across 850+ makes (cars, motorcycles, mopeds, vans,
- * trucks, buses), reconciled from official national vehicle registers. An
- * optional third step picks the model year.
+ * API or by the open VehiclesDB dataset file (no key): 14,000+ models across
+ * 850+ makes (cars, motorcycles, mopeds, vans, trucks, buses), reconciled from
+ * official national vehicle registers. An optional third step picks the model
+ * year.
  *
  * Zero dependencies. No build step. MIT licensed.
  * Data: CC-BY 4.0 (identity layer) — the widget renders attribution for you.
@@ -17,7 +18,11 @@
   "use strict"
 
   const DEFAULTS = {
+    source: "api",         // "api" (publishable key) | "dataset" (the open dataset file, no key)
     apiBase: "https://vehiclesdb.com/api/v1",
+    version: "latest",     // dataset mode: the release to read, e.g. "2026.11.2"
+    datasetUrl: null,      // dataset mode: your own copy of dist/vehicles.json
+    data: null,            // dataset mode: an already-parsed vehicles.json (or a subset in its shape)
     kind: null,            // "car" | "motorcycle" | "moped" | "van" | "truck" | "bus"
     country: null,         // two-letter code, e.g. "de"
     order: "popular",      // "popular" | "alphabetical" (models)
@@ -28,7 +33,10 @@
     yearFallback: "range", // a model with no register span: "range" | "none"
     values: "slug",        // what option values hold: "slug" | "name"
     includeOther: false,   // append an "Other / not listed" escape hatch
-    otherLabel: "Other / not listed", // its text; the option value stays "other"
+    otherLabel: "Other / not listed", // its text
+    otherValue: "other",   // its option value
+    keepUnknown: true,     // a stored value the list does not carry stays selected, unchanged
+    idInput: null,         // an <input> kept filled with the selected model's canonical id
     logos: false,          // render make logos (combobox mode only)
     search: false,         // searchable combobox instead of a plain <select>
     attribution: true,     // "Vehicle data by VehiclesDB" line (CC-BY credit)
@@ -36,7 +44,7 @@
     placeholderModel: "Model",
     placeholderYear: "Year",
     requiredMessage: "Please select a vehicle make.", // validity message on a required make field
-    onChange: null,        // ({ make, model }) => {} — plus `year` when a year select is attached
+    onChange: null,        // ({ make, model }) => {} — plus `year`/`id` when a year select/idInput is attached
     onError: null          // (error) => {}
   }
 
@@ -53,6 +61,20 @@
   // URL per pageview is the right amount of network.
   const jsonCache = new Map()
   const logoCache = new Map()
+  // Dataset mode: one fetch (and one preparation) per dataset URL, and one
+  // preparation per `data` object the host passes, shared by every widget on
+  // the page.
+  const datasetCache = new Map()
+  const preparedData = new WeakMap()
+  // The record behind each <option> the widget renders. Option VALUES cannot
+  // say which record they stand for: without a `kind`, Iveco's Daily is three
+  // records (bus, truck, van) with one slug, and the canonical id needs the
+  // one actually selected.
+  const optionItems = new WeakMap()
+
+  // The same file the SDKs and the Ruby gem read (dist/vehicles.min.json
+  // lacks names, aliases, forms and availability, so it cannot serve here).
+  const DATASET_BASE = "https://cdn.jsdelivr.net/gh/vehiclesdb/vehiclesdb"
 
   function resolveEl(elOrSelector, name) {
     const el = typeof elOrSelector === "string" ? document.querySelector(elOrSelector) : elOrSelector
@@ -60,6 +82,12 @@
     if (el.tagName !== "SELECT" || el.multiple) {
       throw new Error(`VehiclesDropdown: ${name} must be a single-select <select> element`)
     }
+    return el
+  }
+
+  function resolveInput(elOrSelector) {
+    const el = typeof elOrSelector === "string" ? document.querySelector(elOrSelector) : elOrSelector
+    if (!el || el.tagName !== "INPUT") throw new Error("VehiclesDropdown: idInput must be an <input> element (a hidden field works)")
     return el
   }
 
@@ -133,6 +161,89 @@
     return config.values === "name" ? item.name : item.slug
   }
 
+  // ---- Dataset mode: the open file, filtered in the page ------------------
+  // `dist/vehicles.json` is `{version, makes: [{name, slug, aliases?,
+  // models: [{name, slug, kind, availability, aliases?, forms?, former_ids?,
+  // mass_decile?, global_decile?, country_ranks?}]}]}`. A host may pass a
+  // subset in that shape as `data` (one country's cars, rendered by its
+  // server) instead of the whole release.
+  function prepareDataset(data) {
+    if (!data || !Array.isArray(data.makes) || data.makes.some((make) =>
+      !make || typeof make.name !== "string" || typeof make.slug !== "string" ||
+      (make.models != null && !Array.isArray(make.models)))) {
+      throw new Error("VehiclesDB dataset is malformed: expected {makes: [{name, slug, models: [...]}]}")
+    }
+    const makes = data.makes.map((raw) => ({
+      name: raw.name,
+      slug: raw.slug,
+      kinds: raw.kinds || [],
+      aliases: raw.aliases || [],
+      models: (raw.models || []).filter((model) =>
+        model && typeof model.name === "string" && typeof model.slug === "string")
+    }))
+    // Name-alphabetical, diacritic-insensitive, like the gem, the SDKs and
+    // the API's make list (the file arrives slug-sorted).
+    makes.sort((a, b) => ordinal(norm(a.name), norm(b.name)) || ordinal(a.slug, b.slug))
+    return { version: data.version || null, makes }
+  }
+
+  function datasetFor(config) {
+    if (config.data) {
+      let prepared = preparedData.get(config.data)
+      if (!prepared) {
+        prepared = Promise.resolve().then(() => prepareDataset(config.data))
+        preparedData.set(config.data, prepared)
+      }
+      return prepared
+    }
+    const url = config.datasetUrl ||
+      `${DATASET_BASE}@${encodeURIComponent(config.version || "latest")}/dist/vehicles.json`
+    if (datasetCache.has(url)) return datasetCache.get(url)
+    const promise = fetch(url).then(async (response) => {
+      if (!response.ok) {
+        const error = new Error(`VehiclesDB dataset answered ${response.status}`)
+        error.status = response.status
+        throw error
+      }
+      return prepareDataset(await response.json())
+    })
+    datasetCache.set(url, promise)
+    // A failed fetch is not cached: the next widget (or a retry) asks again.
+    promise.catch(() => datasetCache.delete(url))
+    return promise
+  }
+
+  // The scoped list, the same filters the API applies server-side: `kind`
+  // keeps that kind, `country` keeps models the registers have evidence for
+  // there (`availability`).
+  function inScope(config, model) {
+    const country = config.country ? String(config.country).toLowerCase() : null
+    return (!config.kind || model.kind === config.kind) &&
+      (!country || (Array.isArray(model.availability) && model.availability.includes(country)))
+  }
+
+  // The API's two orders. Popular: the country's own registration rank when
+  // the data has one, then the global decile, then the name.
+  function orderModels(config, models) {
+    const country = config.country ? String(config.country).toLowerCase() : null
+    if (config.order !== "popular") return models.slice().sort((a, b) => ordinal(a.name, b.name))
+    const rank = (model) => {
+      const value = country && model.country_ranks ? model.country_ranks[country] : null
+      return Number.isFinite(value) ? value : null
+    }
+    const decile = (model) => Number.isFinite(model.global_decile) ? model.global_decile : 99
+    return models.slice().sort((a, b) => {
+      const ra = rank(a), rb = rank(b)
+      if ((ra === null) !== (rb === null)) return ra === null ? 1 : -1
+      return (ra || 0) - (rb || 0) || decile(a) - decile(b) || ordinal(a.name, b.name)
+    })
+  }
+
+  // The canonical id a database should store: kind/make_slug/model_slug.
+  function modelId(make, model) {
+    return make && model && model.kind ? `${model.kind}/${make.slug}/${model.slug}` : ""
+  }
+
   // ---- Matching typed text to a make or model ------------------------------
   // VehiclesDB's resolution contract (RESOLUTION.md in the dataset repo) is
   // one set of rules for every surface: the Ruby gem, the API, the SDKs and
@@ -164,10 +275,34 @@
   // France normalizes the same).
   const LOCALIZED_SERIES = /^serie (\w+)$/
 
+  // Code point order, never locale-aware: the contract's string comparison.
+  function ordinal(a, b) { return a < b ? -1 : a > b ? 1 : 0 }
+
+  // RESOLUTION §3a, the kind-collision tie-break: when a rung's hits are ONE
+  // nameplate in several kinds (Iveco's Daily: bus, truck, van), the record
+  // with the lowest `mass_decile` answers (absent = unranked = last), then by
+  // kind precedence, then by id. Every surface applies the same rule, so an
+  // unhinted "Iveco Daily" is the van in the gem, the API, the SDKs and here.
+  const KIND_PRECEDENCE = [ "van", "car", "bus", "truck", "moped", "motorcycle" ]
+  function massDecile(item) {
+    const value = item.mass_decile != null ? item.mass_decile : item.massDecile
+    return Number.isFinite(value) ? value : Infinity
+  }
+  function kindCollisionOrder(a, b) {
+    const da = massDecile(a), db = massDecile(b)
+    if (da !== db) return da < db ? -1 : 1
+    const ka = KIND_PRECEDENCE.indexOf(a.kind), kb = KIND_PRECEDENCE.indexOf(b.kind)
+    const ra = ka < 0 ? KIND_PRECEDENCE.length : ka, rb = kb < 0 ? KIND_PRECEDENCE.length : kb
+    if (ra !== rb) return ra - rb
+    return ordinal(String(a.kind), String(b.kind)) ||
+      ordinal(String(a.id || a.slug), String(b.id || b.slug))
+  }
+
   // Run rungs strongest first; the first that finds anything decides. Hits
-  // on one record (a car and a van sharing a slug are one record to a
-  // picker) answer; hits on two records are AMBIGUOUS and stop the ladder,
-  // because a weaker rung must never overrule data that says "either".
+  // on one nameplate answer (several kinds of it are a kind collision,
+  // settled by the tie-break above, never ambiguity); hits on two nameplates
+  // are AMBIGUOUS and stop the ladder, because a weaker rung must never
+  // overrule data that says "either".
   const AMBIGUOUS = []
   function firstRung(rungs) {
     for (const rung of rungs) {
@@ -176,7 +311,7 @@
       if (!hits.length) continue
       const slugs = new Set(hits.map((item) => item.slug))
       if (slugs.size > 1) return null
-      return hits.find((item) => item.kind === "car") || hits[0]
+      return hits.slice().sort(kindCollisionOrder)[0]
     }
     return null
   }
@@ -221,6 +356,19 @@
     ])
   }
 
+  // A stored canonical id (`van/iveco/daily`), then a published former id,
+  // among one make's models: the contract's id rungs, the strongest there
+  // are. A hidden id field saved by an earlier edit keeps naming its exact
+  // record, kind included, even where the name alone would collide.
+  function findModelById(make, models, id) {
+    const wanted = String(id == null ? "" : id).trim()
+    if (!make || !models || !wanted) return null
+    return firstRung([
+      () => models.filter((m) => modelId(make, m) === wanted),
+      () => models.filter((m) => Array.isArray(m.former_ids) && m.former_ids.includes(wanted))
+    ])
+  }
+
   // The searchable list: every make whose name, slug or published alias
   // contains what was typed, compared by `norm` and spacing-blind. Exact
   // answers first, then name hits, then alias-only hits ("vw" lists
@@ -246,14 +394,41 @@
     select.replaceChildren(new Option(placeholder, "", previous === "", previous === ""))
     for (const item of items) {
       const value = optionValue(config, item)
-      select.add(new Option(item.name, value, value === previous, value === previous))
+      const option = new Option(item.name, value, value === previous, value === previous)
+      optionItems.set(option, item)
+      select.add(option)
     }
   }
 
-  // The escape hatch's TEXT is the host's to translate; its VALUE is the
-  // API contract ("other" in every payload, whatever the page's language).
+  // The escape hatch's text and value are the host's: `otherLabel` to
+  // translate, `otherValue` ("other" by default) for apps that store their
+  // own word for it.
   function appendOther(select, config) {
-    select.add(new Option(config.otherLabel, "other"))
+    select.add(new Option(config.otherLabel, config.otherValue))
+  }
+
+  // Select one option as the field's initial state, the one a form reset
+  // restores.
+  function preselect(select, option) {
+    option.selected = true
+    Array.from(select.options).forEach((each) => { each.defaultSelected = each === option })
+  }
+
+  function optionFor(select, item) {
+    return Array.from(select.options).find((option) => optionItems.get(option) === item)
+  }
+
+  // NEVER BLANK A STORED VALUE. A value the list does not carry (a legacy
+  // free-text model, a make outside the `kind`/`country` scope, a name the
+  // data says could be two records) is kept as one extra option, selected,
+  // so the form submits it unchanged until the person picks something else.
+  // It sits right under the placeholder, where an editor sees it. `id` is
+  // the canonical id it stands for, when one is known (see failModels).
+  function keepOption(select, value, id) {
+    const option = new Option(value, value)
+    optionItems.set(option, { kept: true, id: id || "" })
+    select.insertBefore(option, select.options[1] || null)
+    preselect(select, option)
   }
 
   // A model's register span, or null. `years_on_record` reached the API
@@ -308,8 +483,18 @@
   class Instance {
     constructor(options) {
       this.config = Object.assign({}, DEFAULTS, options)
-      if (typeof this.config.key !== "string" || !this.config.key.trim()) {
-        throw new Error("VehiclesDropdown: pass your publishable API key as `key` (get one free at https://vehiclesdb.com)")
+      if (this.config.source !== "api" && this.config.source !== "dataset") {
+        throw new Error(`VehiclesDropdown: source must be "api" or "dataset", got ${JSON.stringify(this.config.source)}`)
+      }
+      if (this.config.data != null && typeof this.config.data !== "object") {
+        throw new Error("VehiclesDropdown: `data` must be the parsed dataset object ({makes: [...]}), not a string")
+      }
+      // `data` is a dataset by definition; passing it is enough.
+      this.datasetMode = this.config.source === "dataset" || this.config.data != null
+      const key = this.config.key
+      if (!this.datasetMode && (typeof key !== "string" || !key.trim())) {
+        throw new Error("VehiclesDropdown: pass your publishable API key as `key` (get one free at https://vehiclesdb.com), " +
+          "or use the open dataset with no key: `source: \"dataset\"`")
       }
 
       this.makeSelect = resolveEl(this.config.make, "make")
@@ -317,8 +502,12 @@
       if (this.modelSelect === this.makeSelect) {
         throw new Error("VehiclesDropdown: make and model must be different <select> elements")
       }
+      // A server-rendered model belongs to the server-rendered make (both
+      // come from one record), whatever `initialMake` says.
+      this.modelFromHost = false
       if (!this.config.initialModel && this.modelSelect?.value) {
         this.config.initialModel = this.modelSelect.value
+        this.modelFromHost = true
       }
       // The year depends on the model, so a year select without one has
       // nothing to fill from — say so now, not with a silently empty field.
@@ -332,6 +521,14 @@
       if (!this.config.initialYear && this.yearSelect?.value) {
         this.config.initialYear = this.yearSelect.value
       }
+      // The canonical id of the selected model, for the host's database. Its
+      // server-rendered value is a stored id: the strongest answer there is
+      // for which record the saved model is (see findModelById).
+      this.idInput = this.config.idInput ? resolveInput(this.config.idInput) : null
+      if (this.idInput && !this.modelSelect) {
+        throw new Error("VehiclesDropdown: idInput needs a model <select> to take the id from")
+      }
+      this.initialId = this.idInput ? this.idInput.value : ""
       // `disabled` belongs to the host. The widget only ever disables the
       // year select for its OWN reason (yearFallback "none" with nothing to
       // choose), remembers that it did, and only ever undoes that.
@@ -370,51 +567,136 @@
         this.attributionEl = attributionLine(anchor)
       }
 
-      this.loadMakes()
+      this.loading = this.loadMakes()
     }
 
     get api() { return this.config.apiBase.replace(/\/$/, "") }
 
+    // The make list for this widget's scope: from the API, or from the
+    // dataset filtered here (a make stays when one of its models does).
+    async fetchMakes() {
+      if (!this.datasetMode) {
+        const data = await fetchJSON(`${this.api}/makes${query(this.config)}`, this.config.key, "makes")
+        return data.makes
+      }
+      const dataset = await datasetFor(this.config)
+      return dataset.makes.filter((make) => make.models.some((model) => inScope(this.config, model)))
+    }
+
+    async fetchModels(make, slug) {
+      if (this.datasetMode) {
+        if (!make) return []
+        await datasetFor(this.config)
+        return orderModels(this.config, make.models.filter((model) => inScope(this.config, model)))
+      }
+      const params = new URLSearchParams()
+      if (this.config.kind) params.set("kind", this.config.kind)
+      if (this.config.country) params.set("country", this.config.country)
+      if (this.config.order === "popular") params.set("order", "popular")
+      const url = `${this.api}/makes/${encodeURIComponent(slug)}/models?${params}`
+      return (await fetchJSON(url, this.config.key, "models")).models
+    }
+
     async loadMakes() {
       try {
-        const data = await fetchJSON(`${this.api}/makes${query(this.config)}`, this.config.key, "makes")
+        const makes = await this.fetchMakes()
         if (this.destroyed) return
-        this.makes = data.makes
+        this.makes = makes
+        // The host's own selection (a server-rendered edit form) wins over
+        // `initialMake`, as it always has.
         const preselected = this.makeSelect.value
-        fillSelect(this.makeSelect, this.config.placeholderMake, data.makes, this.config)
-        if (this.config.includeOther) appendOther(this.makeSelect, this.config)
-        if (this.combobox) this.combobox.setItems(data.makes)
+        this.renderMakes()
 
         // The preselected make, by the resolution contract (slug, name or a
         // published alias, by `norm`): a stored "Citroen" or "VW" lands on
         // its make. Resolved even when the host already rendered a make, so
         // the model and year steps can tell whether that is the intended one.
-        this.initialMakeItem = this.config.initialMake ? findMake(data.makes, this.config.initialMake) : null
-        if (this.config.initialMake && !this.makeSelect.value) {
-          const item = this.initialMakeItem
-          if (item) {
-            this.makeSelect.value = optionValue(this.config, item)
-            Array.from(this.makeSelect.options).forEach((option) => {
-              option.defaultSelected = option.value === this.makeSelect.value
-            })
-            this.combobox?.display(item)
-          }
+        this.initialMakeItem = this.config.initialMake ? findMake(makes, this.config.initialMake) : null
+        const configured = this.config.initialMake == null ? "" : String(this.config.initialMake)
+        // With no make at all, a stored id still names one: its record's.
+        const wanted = preselected || configured || this.makeForId(this.initialId)
+        this.hostMakeRendered = Boolean(preselected)
+        this.initialMakeKept = null
+        const outcome = this.selectMake(wanted)
+        if ((outcome === "kept" || outcome === "other") && (!preselected || preselected === configured)) {
+          this.initialMakeKept = wanted
         }
 
         this.combobox?.sync()
 
         if (this.makeSelect.value) this.makeChanged()
-        else if (preselected && preselected !== "other") {
-          // A server-rendered selection that the fetched list does not carry
-          // (filtered out by kind/country/topMakes, or simply unknown) has
-          // just been dropped. Say so: the consumer's own state still holds
-          // the old value, and a silent empty submit is the worst outcome.
+        else if (preselected) {
+          // `keepUnknown: false`: a server-rendered selection the list does
+          // not carry has just been dropped. Say so: the consumer's own state
+          // still holds the old value, and a silent empty submit is the
+          // worst outcome.
           console.warn(`[VehiclesDropdown] preselected make ${JSON.stringify(preselected)} is not in the fetched list; selection cleared`)
           this.notify()
         }
       } catch (error) {
         if (!this.destroyed) this.fail(error)
       }
+    }
+
+    // The make option value of the record a stored id (or former id) names,
+    // or "". The dataset can look the id up; the API's make list cannot, so
+    // there the id's own make slug answers.
+    makeForId(id) {
+      if (!id) return ""
+      const make = this.datasetMode
+        ? this.makes.find((each) => findModelById(each, each.models.filter((m) => inScope(this.config, m)), id))
+        : this.makes.find((each) => each.slug === String(id).split("/")[1])
+      return make ? optionValue(this.config, make) : ""
+    }
+
+    renderMakes() {
+      fillSelect(this.makeSelect, this.config.placeholderMake, this.makes, this.config, "")
+      if (this.config.includeOther) appendOther(this.makeSelect, this.config)
+      if (this.combobox) this.combobox.setItems(this.makes)
+    }
+
+    // Put a stored make on the make select: the option itself, or its make
+    // by the contract, or (keepUnknown) the value as given. Returns what
+    // happened: "selected", "other", "kept" or "" (nothing selected).
+    selectMake(wanted) {
+      if (!wanted) return ""
+      const select = this.makeSelect
+      if (wanted === this.config.otherValue && this.config.includeOther) {
+        preselect(select, Array.from(select.options).find((option) => option.value === wanted))
+        return "other"
+      }
+      const item = this.makes.find((make) => optionValue(this.config, make) === wanted) || findMake(this.makes, wanted)
+      if (item) {
+        preselect(select, optionFor(select, item))
+        this.combobox?.display(item)
+        return "selected"
+      }
+      if (!this.config.keepUnknown) return ""
+      keepOption(select, wanted)
+      return "kept"
+    }
+
+    // Set a stored make/model (and year, and id) after attach, by the same
+    // rules as the initial values: resolved to the canonical options when the
+    // data can, kept as given when it cannot. Resolves once applied.
+    async setValue({ make = null, model = null, year = null, id = null } = {}) {
+      await this.loading
+      if (this.destroyed || !this.makes) return
+      this.config.initialMake = make
+      this.config.initialModel = model
+      this.config.initialYear = year
+      this.initialId = id || ""
+      this.modelFromHost = false
+      this.initialModelApplied = false
+      this.initialYearApplied = false
+      this.renderMakes()
+      this.initialMakeItem = make ? findMake(this.makes, make) : null
+      this.initialMakeKept = null
+      const wanted = make == null ? this.makeForId(this.initialId) : String(make)
+      const outcome = this.selectMake(wanted)
+      if (outcome === "kept" || outcome === "other") this.initialMakeKept = wanted
+      this.combobox?.sync()
+      await this.makeChanged()
     }
 
     async makeChanged() {
@@ -424,6 +706,11 @@
       // and onChange consumers write it straight into their form state.
       // The year belongs to the old model, so it goes with it.
       this.models = null
+      this.modelsMake = null
+      // Only the latest call may fill the model select: a value check alone
+      // cannot tell two loads for the same make apart (setValue right after
+      // attach), and the older one would spend the initial model.
+      const turn = this.makeTurn = (this.makeTurn || 0) + 1
       if (this.modelSelect) {
         fillSelect(this.modelSelect, this.config.placeholderModel, [], this.config, "")
       }
@@ -433,58 +720,84 @@
       if (!this.modelSelect) return
 
       const makeValue = this.makeSelect.value
-      if (!makeValue || makeValue === "other") {
-        if (makeValue === "other" && this.config.includeOther) appendOther(this.modelSelect, this.config)
-        return
-      }
-
+      if (!makeValue) return
       // `values: "name"` still needs the slug for the URL — look it up.
       const make = this.makes?.find((m) => optionValue(this.config, m) === makeValue)
+      // Other, or a kept make the list does not carry: there are no models to
+      // load, but a stored model still deserves to survive the edit.
+      if ((makeValue === this.config.otherValue && this.config.includeOther) || (!make && (this.makes || this.datasetMode))) {
+        if (this.config.includeOther) appendOther(this.modelSelect, this.config)
+        this.applyInitialModel(null, [])
+        // An Other make has one possible model, Other: choose it, so a
+        // required model field is satisfied and the year step can follow.
+        if (makeValue === this.config.otherValue && this.config.includeOther && !this.modelSelect.value) {
+          this.modelSelect.value = this.config.otherValue
+          this.modelChanged()
+        }
+        return
+      }
       const slug = make ? make.slug : makeValue
 
       try {
-        const params = new URLSearchParams()
-        if (this.config.kind) params.set("kind", this.config.kind)
-        if (this.config.country) params.set("country", this.config.country)
-        if (this.config.order === "popular") params.set("order", "popular")
-        const url = `${this.api}/makes/${encodeURIComponent(slug)}/models?${params}`
-        const data = await fetchJSON(url, this.config.key, "models")
-        if (this.destroyed || this.makeSelect.value !== makeValue) return
+        const models = await this.fetchModels(make, slug)
+        if (this.destroyed || turn !== this.makeTurn || this.makeSelect.value !== makeValue) return
         // The list and the select it fills are swapped TOGETHER, past the
         // stale-response guard: the year step reads its spans from this list,
         // so it can only ever describe the models actually on screen.
-        this.models = data.models
-        fillSelect(this.modelSelect, this.config.placeholderModel, data.models, this.config, "")
+        this.models = models
+        this.modelsMake = make || { slug }
+        fillSelect(this.modelSelect, this.config.placeholderModel, models, this.config, "")
         if (this.config.includeOther) appendOther(this.modelSelect, this.config)
-
-        // The preselected model, applied exactly once — after that the person
-        // is driving, and a make change must reset the model like always.
-        // Matched by the resolution contract like the make: name or slug
-        // (spacing-blind, "Serie 3"), a published alias, or a curated form,
-        // so a free-text "Focus C-Max" saved by an older form preselects the
-        // C-Max. Nothing is preselected when the data says it could be two.
-        if (this.config.initialModel && !this.initialModelApplied && this.isInitialMake(make)) {
-          this.initialModelApplied = true
-          const match = findModel(data.models, this.config.initialModel)
-          this.initialModelItem = match
-          if (match) {
-            this.modelSelect.value = optionValue(this.config, match)
-            Array.from(this.modelSelect.options).forEach((option) => {
-              option.defaultSelected = option.value === this.modelSelect.value
-            })
-            this.modelChanged()
-          }
-        }
+        this.applyInitialModel(this.modelsMake, models)
       } catch (error) {
-        if (!this.destroyed && this.makeSelect.value === makeValue) this.fail(error)
+        if (this.destroyed || turn !== this.makeTurn || this.makeSelect.value !== makeValue) return
+        // The model list could not load. The stored model (and its id) stay
+        // as they were, so submitting the form now changes nothing.
+        this.applyInitialModel(make || null, [], this.initialId)
+        this.fail(error)
       }
     }
 
+    // The preselected model, applied exactly once — after that the person
+    // is driving, and a make change must reset the model like always.
+    // Matched by the resolution contract like the make: a stored id (or a
+    // former id) from `idInput` first, then name or slug (spacing-blind,
+    // "Serie 3"), a published alias, or a curated form, so a free-text
+    // "Focus C-Max" saved by an older form preselects the C-Max. When the
+    // data says it could be two records, or nothing matches, the stored
+    // text is kept as given (keepUnknown), never guessed and never blanked.
+    applyInitialModel(make, models, keptId) {
+      const wanted = this.config.initialModel == null ? "" : String(this.config.initialModel)
+      if (!(wanted || this.initialId) || this.initialModelApplied || !this.isInitialMake(make)) return
+      this.initialModelApplied = true
+      const select = this.modelSelect
+      const match = findModelById(make, models, this.initialId) || (wanted ? findModel(models, wanted) : null)
+      this.initialModelItem = match
+      if (match) preselect(select, optionFor(select, match))
+      else if (wanted && wanted === this.config.otherValue && this.config.includeOther) {
+        preselect(select, Array.from(select.options).find((option) => option.value === wanted))
+      } else if (wanted && this.config.keepUnknown) keepOption(select, wanted, keptId)
+      else return
+      this.modelChanged()
+    }
+
     // Is `make` the one `initialMake` names (or is there no initialMake)?
-    // Compared as resolved records, so "vw" and "volkswagen" agree.
+    // Compared as resolved records, so "vw" and "volkswagen" agree. With no
+    // record (Other, or a kept make), the kept initialMake is its own answer.
+    // A model AND make both rendered by the host are one stored record: the
+    // model belongs to that make, whatever `initialMake` says.
     isInitialMake(make) {
-      if (!this.config.initialMake) return true
-      return Boolean(make && this.initialMakeItem && make.slug === this.initialMakeItem.slug)
+      if (!this.config.initialMake || (this.modelFromHost && this.hostMakeRendered)) return true
+      if (!make) return this.initialMakeKept != null && this.makeSelect.value === this.initialMakeKept
+      return Boolean(this.initialMakeItem && make.slug === this.initialMakeItem.slug)
+    }
+
+    // The record behind the selected model option: a dataset/API model, a
+    // kept value ({kept: true}), or null (placeholder, Other).
+    selectedModel() {
+      const select = this.modelSelect
+      const option = select && select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null
+      return (option && option.value && optionItems.get(option)) || null
     }
 
     modelChanged() {
@@ -507,11 +820,12 @@
         return
       }
 
-      // "Other / not listed" has no span by definition; it takes the
-      // fallback like any other model the registers cannot date.
-      const model = modelValue === "other"
-        ? null
-        : this.models?.find((m) => optionValue(this.config, m) === modelValue)
+      // "Other / not listed" has no span by definition, nor has a kept
+      // value; they take the fallback like any model the registers cannot
+      // date. The record is the selected OPTION's, not the first with its
+      // value: without a `kind`, one slug can be several records.
+      const selected = this.selectedModel()
+      const model = selected && !selected.kept ? selected : null
       const current = new Date().getFullYear()
       const span = yearSpan(model, current)
       // THE DEFAULT IS A RANGE, NOT A DEAD END. About one model in eight has
@@ -549,10 +863,10 @@
     keepYear(wanted, modelValue) {
       const select = this.yearSelect
       if (!Array.from(select.options).some((option) => option.value && option.value === wanted)) {
-        if (wanted === "other") appendOther(select, this.config)
+        if (wanted === this.config.otherValue) appendOther(select, this.config)
         else if (/^\d+$/.test(wanted)) {
           const before = Array.from(select.options).find((option) =>
-            option.value === "other" || (option.value && Number(option.value) < Number(wanted)))
+            option.value === this.config.otherValue || (option.value && Number(option.value) < Number(wanted)))
           select.add(new Option(wanted, wanted), before || null)
         } else {
           console.warn(`[VehiclesDropdown] initial year ${JSON.stringify(wanted)} is not a year; selection cleared`)
@@ -583,6 +897,9 @@
     }
 
     async logoUrl(slug) {
+      // Logos are an API feature (they need the key); keyless dataset mode
+      // renders the letter chip, which is always the fallback anyway.
+      if (!this.config.key) return null
       const cacheKey = requestCacheKey(logoURL(this.api, slug), this.config.key)
       if (this.logoUrls.has(cacheKey)) return this.logoUrls.get(cacheKey)
 
@@ -624,6 +941,13 @@
       select.required = false
       input.required = originalRequired
       input.disabled = select.disabled
+      // The host owns `disabled` and may flip it after attach (a form that
+      // locks fields once verified): mirror it onto the visible input.
+      const View = select.ownerDocument.defaultView
+      const observer = View && View.MutationObserver
+        ? new View.MutationObserver(() => { input.disabled = select.disabled })
+        : null
+      if (observer) observer.observe(select, { attributes: true, attributeFilter: [ "disabled" ] })
       // Inherit the host select's classes, so the combobox wears whatever the
       // page's forms wear — Tailwind, Bootstrap, hand-rolled CSS, anything.
       input.className = `vdb-combobox-input ${select.className}`.trim()
@@ -719,7 +1043,7 @@
 
       function choose(item) {
         showSelected(item)
-        // The escape-hatch row carries its own fixed value ("other");
+        // The escape-hatch row carries its own fixed value (otherValue);
         // real makes answer to the configured values mode.
         select.value = item.value !== undefined ? item.value : optionValue(self.config, item)
         select.dispatchEvent(new Event("change", { bubbles: true }))
@@ -760,18 +1084,22 @@
         shown = filterItems(items, filter).slice(0, 50)
         // The escape hatch rides along unfiltered: a picker should never
         // dead-end, least of all for the person whose make is not listed.
-        if (self.config.includeOther) shown = shown.concat({ name: self.config.otherLabel, value: "other" })
+        if (self.config.includeOther) shown = shown.concat({ name: self.config.otherLabel, value: self.config.otherValue })
         active = -1
         input.removeAttribute("aria-activedescendant")
         list.replaceChildren(...shown.map(row))
         shown.length ? openList() : close()
       }
 
+      // The selected make, or the selected option as a row of its own: the
+      // Other row, or a stored make kept as given (keepUnknown), which the
+      // input must show rather than blank.
       function selectedItem() {
-        if (select.value === "other" && self.config.includeOther) {
-          return { name: self.config.otherLabel, value: "other" }
-        }
-        return items.find((item) => optionValue(self.config, item) === select.value)
+        if (!select.value) return undefined
+        const item = items.find((each) => optionValue(self.config, each) === select.value)
+        if (item) return item
+        const option = select.options[select.selectedIndex]
+        return option ? { name: option.text, value: option.value } : undefined
       }
 
       function restoreSelected() {
@@ -863,6 +1191,7 @@
         sync() { restoreSelected() },
         destroy() {
           if (blurTimer) clearTimeout(blurTimer)
+          if (observer) observer.disconnect()
           labels.forEach((label) => {
             if (label.htmlFor === inputId) label.htmlFor = select.id
           })
@@ -874,16 +1203,45 @@
     }
 
     notify() {
+      this.syncId()
+      const value = this.value
+      // A DOM event too, for hosts that listen rather than pass callbacks
+      // (a Stimulus action: `make-model-dropdown:change->vehicle#picked`).
+      const View = this.makeSelect.ownerDocument.defaultView
+      if (View && View.CustomEvent) {
+        this.makeSelect.dispatchEvent(new View.CustomEvent("make-model-dropdown:change", {
+          bubbles: true, detail: Object.assign({}, value, { id: this.currentId() || null })
+        }))
+      }
       if (typeof this.config.onChange !== "function") return
 
       try {
-        this.config.onChange(this.value)
+        this.config.onChange(value)
       } catch (error) {
         // A consumer bug is not an API failure: onError promises errors with
         // .status/.code, and handlers switching on those would misroute this.
         // Log it whole (stack included) without interrupting the widget.
         console.error("[VehiclesDropdown] onChange callback failed", error)
       }
+    }
+
+    // The canonical id of the selected model ("" for none, Other, or a kept
+    // value: an unresolved string has no id, and guessing one would store a
+    // wrong answer).
+    currentId() {
+      const model = this.selectedModel()
+      if (!model) return ""
+      return model.kept ? model.id : modelId(this.modelsMake, model)
+    }
+
+    syncId() {
+      if (!this.idInput) return
+      const id = this.currentId()
+      if (this.idInput.value === id) return
+      this.idInput.value = id
+      // Hosts that watch the field (validation, autosave) hear the change.
+      this.idInput.dispatchEvent(new Event("input", { bubbles: true }))
+      this.idInput.dispatchEvent(new Event("change", { bubbles: true }))
     }
 
     fail(error) {
@@ -903,11 +1261,13 @@
       }
       // `year` exists only when a year select does: {make, model} consumers
       // keep the exact shape they were written against. A year is a number;
-      // the escape hatch reports "other" like make and model do.
+      // the escape hatch reports otherValue like make and model do.
       if (this.yearSelect) {
         const year = this.yearSelect.value
-        value.year = !year ? null : year === "other" ? "other" : Number(year)
+        value.year = !year ? null : year === this.config.otherValue ? year : Number(year)
       }
+      // `id` likewise exists only when an idInput does.
+      if (this.idInput) value.id = this.currentId() || null
       return value
     }
 
@@ -936,6 +1296,6 @@
     norm,
     findMake,
     findModel,
-    version: "0.3.0"
+    version: "0.4.0"
   }
 })
