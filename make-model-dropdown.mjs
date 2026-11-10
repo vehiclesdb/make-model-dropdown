@@ -500,8 +500,12 @@ const VehiclesDropdown = (function () {
       if (this.modelSelect === this.makeSelect) {
         throw new Error("VehiclesDropdown: make and model must be different <select> elements")
       }
+      // A server-rendered model belongs to the server-rendered make (both
+      // come from one record), whatever `initialMake` says.
+      this.modelFromHost = false
       if (!this.config.initialModel && this.modelSelect?.value) {
         this.config.initialModel = this.modelSelect.value
+        this.modelFromHost = true
       }
       // The year depends on the model, so a year select without one has
       // nothing to fill from — say so now, not with a silently empty field.
@@ -606,10 +610,15 @@ const VehiclesDropdown = (function () {
         // its make. Resolved even when the host already rendered a make, so
         // the model and year steps can tell whether that is the intended one.
         this.initialMakeItem = this.config.initialMake ? findMake(makes, this.config.initialMake) : null
-        const wanted = preselected || (this.config.initialMake == null ? "" : String(this.config.initialMake))
+        const configured = this.config.initialMake == null ? "" : String(this.config.initialMake)
+        // With no make at all, a stored id still names one: its record's.
+        const wanted = preselected || configured || this.makeForId(this.initialId)
+        this.hostMakeRendered = Boolean(preselected)
         this.initialMakeKept = null
         const outcome = this.selectMake(wanted)
-        if ((outcome === "kept" || outcome === "other") && !preselected) this.initialMakeKept = wanted
+        if ((outcome === "kept" || outcome === "other") && (!preselected || preselected === configured)) {
+          this.initialMakeKept = wanted
+        }
 
         this.combobox?.sync()
 
@@ -625,6 +634,17 @@ const VehiclesDropdown = (function () {
       } catch (error) {
         if (!this.destroyed) this.fail(error)
       }
+    }
+
+    // The make option value of the record a stored id (or former id) names,
+    // or "". The dataset can look the id up; the API's make list cannot, so
+    // there the id's own make slug answers.
+    makeForId(id) {
+      if (!id) return ""
+      const make = this.datasetMode
+        ? this.makes.find((each) => findModelById(each, each.models.filter((m) => inScope(this.config, m)), id))
+        : this.makes.find((each) => each.slug === String(id).split("/")[1])
+      return make ? optionValue(this.config, make) : ""
     }
 
     renderMakes() {
@@ -664,12 +684,13 @@ const VehiclesDropdown = (function () {
       this.config.initialModel = model
       this.config.initialYear = year
       this.initialId = id || ""
+      this.modelFromHost = false
       this.initialModelApplied = false
       this.initialYearApplied = false
       this.renderMakes()
       this.initialMakeItem = make ? findMake(this.makes, make) : null
       this.initialMakeKept = null
-      const wanted = make == null ? "" : String(make)
+      const wanted = make == null ? this.makeForId(this.initialId) : String(make)
       const outcome = this.selectMake(wanted)
       if (outcome === "kept" || outcome === "other") this.initialMakeKept = wanted
       this.combobox?.sync()
@@ -755,8 +776,10 @@ const VehiclesDropdown = (function () {
     // Is `make` the one `initialMake` names (or is there no initialMake)?
     // Compared as resolved records, so "vw" and "volkswagen" agree. With no
     // record (Other, or a kept make), the kept initialMake is its own answer.
+    // A model AND make both rendered by the host are one stored record: the
+    // model belongs to that make, whatever `initialMake` says.
     isInitialMake(make) {
-      if (!this.config.initialMake) return true
+      if (!this.config.initialMake || (this.modelFromHost && this.hostMakeRendered)) return true
       if (!make) return this.initialMakeKept != null && this.makeSelect.value === this.initialMakeKept
       return Boolean(this.initialMakeItem && make.slug === this.initialMakeItem.slug)
     }

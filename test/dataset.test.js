@@ -301,6 +301,32 @@ test("a kind collision takes the RESOLUTION §3a tie-break, only among the scope
   assert.notEqual($("#vid").value, "van/iveco/daily")
 })
 
+test("a rendered make and model stay together whatever initialMake says (Sol r1)", async () => {
+  installDOM(`
+    <select id="make"><option value="Lada" selected>Lada</option></select>
+    <select id="model"><option value="Niva" selected>Niva</option></select>
+    <select id="make2"><option value="seat" selected>SEAT</option></select>
+    <select id="model2"><option value="Leon" selected>Leon</option></select>`)
+  noFetch()
+  const a = attach({ data: dataset(), make: "#make", model: "#model", country: "es", initialMake: "Lada" })
+  const b = attach({ data: dataset(), make: "#make2", model: "#model2", initialMake: "volkswagen" })
+  await waitFor(() => $("#model").value && $("#model2").value === "leon")
+  assert.deepEqual(a.value, { make: "Lada", model: "Niva" })
+  assert.deepEqual(b.value, { make: "seat", model: "leon" })
+})
+
+test("a stored id alone selects its make and model (Sol r1)", async () => {
+  installDOM(`
+    <select id="make"></select><select id="model"></select><input id="vid" value="car/seat/leon-st">
+    <select id="make2"></select><select id="model2"></select><input id="vid2" value="bus/iveco/daily">`)
+  noFetch()
+  const a = attach({ data: dataset(), make: "#make", model: "#model", idInput: "#vid" })
+  const b = attach({ data: dataset(), make: "#make2", model: "#model2", idInput: "#vid2" })
+  await waitFor(() => $("#vid").value === "car/seat/leon" && $("#model2").value)
+  assert.deepEqual(a.value, { make: "seat", model: "leon", id: "car/seat/leon" })
+  assert.deepEqual(b.value, { make: "iveco", model: "daily", id: "bus/iveco/daily" }, "the stored kind, not the tie-break")
+})
+
 test("findModel: the lowest mass_decile wins a kind collision, then kind precedence", () => {
   const { findModel } = VehiclesDropdown
   const transit = [
