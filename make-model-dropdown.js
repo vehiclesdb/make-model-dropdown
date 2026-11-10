@@ -3,9 +3,9 @@
  * https://vehiclesdb.com/make-and-model-dropdown
  *
  * A dependent make → model picker for any web page, powered by the VehiclesDB
- * API or by the open VehiclesDB dataset file (no key): 14,000+ models across
- * 850+ makes (cars, motorcycles, mopeds, vans, trucks, buses), reconciled from
- * official national vehicle registers. An optional third step picks the model
+ * API or by the open VehiclesDB dataset file (no key): every make and model in
+ * the dataset (cars, motorcycles, mopeds, vans, trucks, buses), reconciled from
+ * official national vehicle registers; live counts at vehiclesdb.com/makes. An optional third step picks the model
  * year.
  *
  * Zero dependencies. No build step. MIT licensed.
