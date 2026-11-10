@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- **A server-rendered slice as `data`.** The Ruby gem's `Vehicles.dataset_slice(kind:, country:)` (vehicles 0.9.2) writes one scope of the release (Spain's cars: ~300 KB, ~50 KB gzipped) in the `dist/vehicles.json` shape; passed as `data`, the widget makes no request and resolves stored values, forms, aliases and former ids against it as it would against the release. README: a Rails recipe that embeds it in the page. A test runs a gem-produced slice (`test/fixtures/gem-slice-car-ie.json`) through the widget.
+- **Localized credit line.** `locale: "es"` renders "Datos de vehículos de VehiclesDB (CC-BY 4.0)" and sets Spanish defaults for the placeholders, the Other label and the required-make message (`"en"` is the default; `"es-ES"` reads as `"es"`; options you pass win). `attributionText` takes your own wording as a template with `{source}` and `{license}`; both are required, so the VehiclesDB credit and the licence link cannot be dropped (a template without them falls back to the locale's line, with a warning). The template is text, not HTML.
+- The credit line now links "CC-BY 4.0" to the licence (it was plain text).
+- An option passed as `undefined` now counts as not passed, so it keeps its default instead of overwriting it.
+
 ## 0.4.0
 
 - **No API key needed: dataset mode.** `source: "dataset"` reads the open VehiclesDB release file (`dist/vehicles.json` on jsDelivr, the same file the gem and the SDKs read) once per page and filters makes and models in the browser. `version` pins a release (default `"latest"`), `datasetUrl` points at a self-hosted copy, and `data` takes the parsed file, or a subset in its shape, with no request at all. API mode is unchanged.

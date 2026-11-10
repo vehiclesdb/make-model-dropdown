@@ -14,7 +14,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.1"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -32,7 +32,7 @@ That is the whole integration. The make list loads once (~8 KB gzipped), the mod
 VehiclesDropdown.attach({ source: "dataset", make: "#make", model: "#model", kind: "car", country: "es" })
 ```
 
-`source: "dataset"` reads the open VehiclesDB release file, [`dist/vehicles.json`](https://github.com/vehiclesdb/vehiclesdb) (CC-BY 4.0), from jsDelivr: the same file the Ruby gem and the SDKs read. It is one request per page (about 0.6 MB compressed, shared by every widget on the page), and makes and models are then filtered in the browser, with no request per make. Pin a release with `version: "2026.11.2"` (default `"latest"`), serve your own copy with `datasetUrl`, or pass the parsed file (or a subset of it in the same shape, such as your server's list of one country's cars) as `data`, which makes no request at all. Logos need an API key, so keyless pages show the letter chip. `topMakes` is API-only.
+`source: "dataset"` reads the open VehiclesDB release file, [`dist/vehicles.json`](https://github.com/vehiclesdb/vehiclesdb) (CC-BY 4.0), from jsDelivr: the same file the Ruby gem and the SDKs read. It is one request per page (about 0.6 MB compressed, shared by every widget on the page), and makes and models are then filtered in the browser, with no request per make. Pin a release with `version: "2026.11.2"` (default `"latest"`), serve your own copy with `datasetUrl`, or pass the parsed file (or a subset of it in the same shape, such as your server's list of one country's cars) as `data`, which makes no request at all. The Ruby gem writes that subset for you: `Vehicles.dataset_slice(kind: :car, country: :es)` (vehicles 0.9.2+) is Spain's cars in the file's shape, about 300 KB of JSON and 50 KB gzipped (see the Rails recipe below). Logos need an API key, so keyless pages show the letter chip. `topMakes` is API-only.
 
 ### npm
 
@@ -57,7 +57,7 @@ bin/importmap pin make-model-dropdown
 or pin the ES module from the CDN in `config/importmap.rb`:
 
 ```ruby
-pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.0/make-model-dropdown.mjs"
+pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.1/make-model-dropdown.mjs"
 ```
 
 ```js
@@ -88,6 +88,35 @@ export default class extends Controller {
   <%= form.hidden_field :vehiclesdb_id, data: { vehicle_picker_target: "id" } %>
 </div>
 ```
+
+#### Embedding the data from the server (no CDN request)
+
+With the [`vehicles` gem](https://github.com/vehiclesdb/vehicles) (0.9.2+), render your scope into the page and hand it to the widget as `data`: the page then makes no request for vehicle data at all, and the list is the exact release your server runs.
+
+```ruby
+# app/helpers/vehicles_helper.rb
+def vehicles_dataset_json(**scope)
+  Rails.cache.fetch(["vehicles/dataset_slice", Vehicles.data_version, scope]) do
+    Vehicles.dataset_slice(**scope).to_json
+  end
+end
+```
+
+```erb
+<script type="application/json" id="vehicles-data"><%= json_escape(vehicles_dataset_json(kind: :car, country: :es)).html_safe %></script>
+```
+
+```js
+connect() {
+  const data = JSON.parse(document.getElementById("vehicles-data").textContent)
+  this.dropdown = VehiclesDropdown.attach({
+    data, kind: "car", country: "es", locale: "es",
+    make: this.makeTarget, model: this.modelTarget, idInput: this.idTarget
+  })
+}
+```
+
+Pass the same `kind`/`country` you sliced by. Parse it once per page: widgets given the same `data` object share one preparation.
 
 Render the stored values as the selects' selected options and the widget does the rest: it fills the lists, selects the canonical record for what was stored, keeps anything it cannot resolve, and keeps the hidden field holding the canonical id (see below). With `values: "name"` the columns keep storing names; store the id next to them, because it is what stays stable when a name is respelled.
 
@@ -123,10 +152,12 @@ VehiclesDropdown.attach({
   search: true,            // searchable combobox instead of a plain select
   logos: true,             // make logos in the list (search mode; free key feature)
 
+  locale: "en",            // "en" (default) or "es": default wording for the strings below
   placeholderMake: "Make",
   placeholderModel: "Model",
   placeholderYear: "Year",
   attribution: true,       // the CC-BY credit line (keep it on — see below)
+  attributionText: null,   // its wording, e.g. "Datos: {source} ({license})" (see Attribution)
 
   onChange: ({ make, model, year, id }) => {}, // `year`/`id` only with a year select/idInput
   onError: (error) => {}
@@ -203,6 +234,19 @@ The data is the point. Every model carries a global popularity decile from real 
 ## Attribution
 
 The vehicle identity data is [CC-BY 4.0](https://vehiclesdb.com/attribution) — free for anything, with visible credit. The widget renders the credit line for you; leave `attribution: true` and you are compliant without reading a license. Paid plans can waive display attribution.
+
+The line reads "Vehicle data by VehiclesDB (CC-BY 4.0)", with links to vehiclesdb.com and the licence. `locale: "es"` switches it, and the widget's own strings, to Spanish:
+
+| | `"en"` (default) | `"es"` |
+|---|---|---|
+| credit line | Vehicle data by VehiclesDB (CC-BY 4.0) | Datos de vehículos de VehiclesDB (CC-BY 4.0) |
+| `placeholderMake` / `placeholderModel` / `placeholderYear` | Make / Model / Year | Marca / Modelo / Año |
+| `otherLabel` | Other / not listed | Otro / no está en la lista |
+| `requiredMessage` | Please select a vehicle make. | Selecciona la marca del vehículo. |
+
+Region tags work (`"es-ES"` is `"es"`); an unknown locale falls back to English with a warning. Any option you pass yourself wins over the locale's default.
+
+For other wording, `attributionText` is a template with two required slots: `{source}` (the VehiclesDB link) and `{license}` (the CC-BY 4.0 link), e.g. `"Fuente de datos: {source}, licencia {license}"`. The template is plain text, never HTML. One that drops either slot is ignored, with a warning, and the locale's line is shown instead: the credit can be translated but not removed.
 
 ## The API underneath
 
