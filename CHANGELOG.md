@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0
+
+- **No API key needed: dataset mode.** `source: "dataset"` reads the open VehiclesDB release file (`dist/vehicles.json` on jsDelivr, the same file the gem and the SDKs read) once per page and filters makes and models in the browser. `version` pins a release (default `"latest"`), `datasetUrl` points at a self-hosted copy, and `data` takes the parsed file, or a subset in its shape, with no request at all. API mode is unchanged.
+- **`country` in dataset mode** keeps models whose `availability` includes the country, and makes with at least one such model, like the API does. `order: "popular"` follows the country's own registration rank, then the global decile, as the API does.
+- **Stored values are never blanked** (`keepUnknown`, default on). A server-rendered make or model, `initialMake`/`initialModel`, or a `setValue` call is resolved to the canonical option when the data can (name, alias, form; makes by alias), and otherwise kept as one extra selected option, so the form re-submits it unchanged. Ambiguous values are kept, not guessed. `keepUnknown: false` restores the 0.3.0 behaviour. If the model list cannot load, the stored model and id are kept.
+- **`idInput`**: an `<input>` kept filled with the selected model's canonical id (`kind/make_slug/model_slug`), emptied for no model, Other or a kept value; it dispatches `input`/`change`. Its server-rendered value is read as a stored id: an id or a published former id selects that exact record first. `.value` and `onChange` carry `id` when an idInput is attached.
+- **Kind collisions follow RESOLUTION.md §3a**: one nameplate in several kinds (Iveco Daily: bus, truck, van) picks the lowest `mass_decile`, then van, car, bus, truck, moped, motorcycle, then the id, among the widget's scoped list only. The old car-first preference is gone. The selected option (not its value) decides the id, so the three Daily rows stay distinct.
+- **ES module build** `make-model-dropdown.mjs`: one self-contained file that browsers, Rails importmap (`bin/importmap pin make-model-dropdown`) and jspm can load. `import "make-model-dropdown"` now resolves to it; `index.mjs` re-exports it. The UMD file still serves `<script>` and `require`. README: a Rails importmap + Stimulus recipe.
+- New: `instance.setValue({make, model, year, id})`; a bubbling `make-model-dropdown:change` DOM event with `{make, model, id}` (plus `year`); `otherValue` (the Other row's value, default `"other"`); the searchable combobox follows its select's `disabled` after attach and shows a kept make.
+- README pins `@0.4.0` (the `@0.2.0` pin was never published).
+- Tests: dataset mode, country scope, kept values, canonical reselection, the tie-break, the id field, the ES module; the dataset's `conformance/resolve.json` strict pair cases run through the widget in CI.
+
 ## 0.3.0
 
 - **Matching follows the VehiclesDB resolution contract**, the rules the gem, the API and the SDKs share, so a stored value picks the same record on every surface.
