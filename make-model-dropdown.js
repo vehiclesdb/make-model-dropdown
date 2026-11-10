@@ -78,7 +78,7 @@
   function localeFor(value) {
     if (value == null || value === "") return "en"
     const code = String(value).toLowerCase().split(/[-_]/)[0]
-    if (LOCALES[code]) return code
+    if (Object.prototype.hasOwnProperty.call(LOCALES, code)) return code
     console.warn(`VehiclesDropdown: no "${value}" locale; using "en" (available: ${Object.keys(LOCALES).join(", ")})`)
     return "en"
   }

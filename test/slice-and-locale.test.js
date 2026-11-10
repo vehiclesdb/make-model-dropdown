@@ -207,3 +207,20 @@ test("an unknown locale falls back to English with a warning", () => {
   assert.equal($(".vdb-attribution").textContent, "Vehicle data by VehiclesDB (CC-BY 4.0)")
   assert.match(warnings.join("\n"), /no "xx" locale/)
 })
+
+test("a locale named like an Object.prototype key is unknown too (Sol r1)", () => {
+  for (const locale of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    installDOM(`<div><select id="make"></select></div>`)
+    noFetch()
+    const { warnings, restore } = captureWarnings()
+    try {
+      attach({ data: slice(), locale, make: "#make" })
+    } finally {
+      restore()
+    }
+    assert.equal($(".vdb-attribution").textContent, "Vehicle data by VehiclesDB (CC-BY 4.0)", locale)
+    assert.match(warnings.join("\n"), /locale/)
+    instances.forEach((instance) => instance.destroy())
+    instances = []
+  }
+})
