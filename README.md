@@ -6,7 +6,7 @@
 
 Zero dependencies. No build step. Works with plain HTML forms, React, Vue, Rails (importmap + Stimulus included), anything that renders a `<select>`.
 
-**[Live demo and docs →](https://vehiclesdb.com/make-and-model-dropdown)**
+**[Car make and model dropdown: live demo and docs →](https://vehiclesdb.com/make-and-model-dropdown)**
 
 ## Quick start
 
