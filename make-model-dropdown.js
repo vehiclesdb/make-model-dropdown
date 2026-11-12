@@ -3,9 +3,9 @@
  * https://vehiclesdb.com/make-and-model-dropdown
  *
  * A dependent make → model picker for any web page, powered by the VehiclesDB
- * API or by the open VehiclesDB dataset file (no key): 14,000+ models across
- * 850+ makes (cars, motorcycles, mopeds, vans, trucks, buses), reconciled from
- * official national vehicle registers. An optional third step picks the model
+ * API or by the open VehiclesDB dataset file (no key): every make and model in
+ * the dataset (cars, motorcycles, mopeds, vans, trucks, buses), reconciled from
+ * official national vehicle registers; live counts at vehiclesdb.com/makes. An optional third step picks the model
  * year.
  *
  * Zero dependencies. No build step. MIT licensed.
@@ -39,13 +39,57 @@
     idInput: null,         // an <input> kept filled with the selected model's canonical id
     logos: false,          // render make logos (combobox mode only)
     search: false,         // searchable combobox instead of a plain <select>
-    attribution: true,     // "Vehicle data by VehiclesDB" line (CC-BY credit)
+    attribution: true,     // "Vehicle data by VehiclesDB (CC-BY 4.0)" line (the licence's credit)
+    attributionText: null, // its wording: a template with {source} and {license}, e.g. "Datos: {source} ({license})"
+    locale: "en",          // "en" | "es": default wording for the credit line, placeholders, Other and the required message
     placeholderMake: "Make",
     placeholderModel: "Model",
     placeholderYear: "Year",
     requiredMessage: "Please select a vehicle make.", // validity message on a required make field
     onChange: null,        // ({ make, model }) => {} — plus `year`/`id` when a year select/idInput is attached
     onError: null          // (error) => {}
+  }
+
+  // `locale` picks these defaults; an option the host sets explicitly wins.
+  // The credit line's template must keep {source} (the VehiclesDB link) and
+  // {license} (the CC-BY 4.0 link): CC-BY 4.0 §3(a) asks for both.
+  const LOCALES = {
+    en: {
+      placeholderMake: "Make",
+      placeholderModel: "Model",
+      placeholderYear: "Year",
+      otherLabel: "Other / not listed",
+      requiredMessage: "Please select a vehicle make.",
+      attributionText: "Vehicle data by {source} ({license})"
+    },
+    es: {
+      placeholderMake: "Marca",
+      placeholderModel: "Modelo",
+      placeholderYear: "Año",
+      otherLabel: "Otro / no está en la lista",
+      requiredMessage: "Selecciona la marca del vehículo.",
+      attributionText: "Datos de vehículos de {source} ({license})"
+    }
+  }
+  const SOURCE_URL = "https://vehiclesdb.com"
+  const LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/"
+
+  // "es", "es-ES", "ES_es" → "es"; anything without a table → "en", warned.
+  function localeFor(value) {
+    if (value == null || value === "") return "en"
+    const code = String(value).toLowerCase().split(/[-_]/)[0]
+    if (Object.prototype.hasOwnProperty.call(LOCALES, code)) return code
+    console.warn(`VehiclesDropdown: no "${value}" locale; using "en" (available: ${Object.keys(LOCALES).join(", ")})`)
+    return "en"
+  }
+
+  // The host's options over the locale's defaults over DEFAULTS. An option
+  // passed as undefined counts as not passed.
+  function configFor(options) {
+    const given = {}
+    for (const [key, value] of Object.entries(options || {})) if (value !== undefined) given[key] = value
+    const locale = localeFor(given.locale)
+    return Object.assign({}, DEFAULTS, LOCALES[locale], given, { locale })
   }
 
   // How far back `yearFallback: "range"` reaches: the current year down to
@@ -452,17 +496,41 @@
     return items
   }
 
-  function attributionLine(container) {
+  // The credit line: the host's words around two links it cannot drop. A
+  // template missing {source} or {license} (or not a string) falls back to
+  // the locale's own wording, with a warning: the credit is a licence
+  // condition, so it can be translated but not blanked. The template is
+  // text, never HTML.
+  function attributionParts(config) {
+    const template = config.attributionText
+    const usable = typeof template === "string" &&
+      template.includes("{source}") && template.includes("{license}")
+    if (!usable && template != null) {
+      console.warn("VehiclesDropdown: attributionText must contain {source} and {license} " +
+        "(the VehiclesDB credit and the CC-BY 4.0 licence link); using the default wording")
+    }
+    return (usable ? template : LOCALES[config.locale].attributionText).split(/(\{source\}|\{license\})/)
+  }
+
+  function creditLink(href, text) {
+    const a = document.createElement("a")
+    a.href = href
+    a.target = "_blank"
+    a.rel = "noopener"
+    a.textContent = text
+    a.style.cssText = "color:inherit;text-decoration:underline;"
+    return a
+  }
+
+  function attributionLine(container, config) {
     const p = document.createElement("p")
     p.className = "vdb-attribution"
     p.style.cssText = "font-size:.75rem;color:#6b7280;margin:.375rem 0 0;"
-    const a = document.createElement("a")
-    a.href = "https://vehiclesdb.com"
-    a.target = "_blank"
-    a.rel = "noopener"
-    a.textContent = "VehiclesDB"
-    a.style.cssText = "color:inherit;text-decoration:underline;"
-    p.append("Vehicle data by ", a, " (CC-BY 4.0)")
+    for (const part of attributionParts(config)) {
+      if (part === "{source}") p.append(creditLink(SOURCE_URL, "VehiclesDB"))
+      else if (part === "{license}") p.append(creditLink(LICENSE_URL, "CC-BY 4.0"))
+      else if (part) p.append(part)
+    }
     container.append(p)
     return p
   }
@@ -482,7 +550,7 @@
 
   class Instance {
     constructor(options) {
-      this.config = Object.assign({}, DEFAULTS, options)
+      this.config = configFor(options)
       if (this.config.source !== "api" && this.config.source !== "dataset") {
         throw new Error(`VehiclesDropdown: source must be "api" or "dataset", got ${JSON.stringify(this.config.source)}`)
       }
@@ -564,7 +632,7 @@
       if (this.config.search || this.config.logos) this.enhance()
       if (this.config.attribution) {
         const anchor = (this.yearSelect || this.modelSelect || this.makeSelect).parentElement || this.makeSelect
-        this.attributionEl = attributionLine(anchor)
+        this.attributionEl = attributionLine(anchor, this.config)
       }
 
       this.loading = this.loadMakes()
@@ -1296,6 +1364,6 @@
     norm,
     findMake,
     findModel,
-    version: "0.4.0"
+    version: "0.4.1"
   }
 })
