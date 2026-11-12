@@ -1,7 +1,7 @@
 {
   "name": "make-model-dropdown",
-  "version": "0.1.4",
-  "description": "Car make and model dropdown for any web page. A dependent make/model picker with live vehicle data from the VehiclesDB API: 14,000+ models, 850+ makes, cars and motorcycles to trucks and buses, from official registers of 14 countries. Zero dependencies.",
+  "version": "0.4.1",
+  "description": "Car make and model dropdown for any web page. A dependent make/model picker with vehicle data from VehiclesDB: live from the API with a publishable key, or keyless from the open dataset. every make and model, cars and motorcycles to trucks and buses, from official national vehicle registers. Zero dependencies.",
   "keywords": [
     "car make model dropdown",
     "motorcycle make model dropdown",
@@ -25,25 +25,33 @@
   "bugs": "https://github.com/vehiclesdb/make-model-dropdown/issues",
   "license": "MIT",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build:esm": "node scripts/build-esm.js",
+    "prepublishOnly": "node scripts/build-esm.js --check"
   },
   "main": "make-model-dropdown.js",
+  "module": "make-model-dropdown.mjs",
   "exports": {
     ".": {
-      "import": "./index.mjs",
+      "import": "./make-model-dropdown.mjs",
       "require": "./make-model-dropdown.js",
       "default": "./make-model-dropdown.js"
     },
+    "./make-model-dropdown.mjs": "./make-model-dropdown.mjs",
+    "./make-model-dropdown.js": "./make-model-dropdown.js",
+    "./index.mjs": "./index.mjs",
     "./package.json": "./package.json"
   },
   "files": [
     "make-model-dropdown.js",
+    "make-model-dropdown.mjs",
     "index.mjs",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
-  "sideEffects": false,
+  "sideEffects": true,
   "devDependencies": {
-    "jsdom": "^26.1.0"
+    "jsdom": "^31.0.0"
   }
 }
