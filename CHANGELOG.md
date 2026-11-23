@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- **Generation step** (optional, API mode). `generation: "#generation"` (or `data-generation` on a one-tag picker, `data-name-generation` for its field name, default `generation`) adds a select filled, after a model is picked, from `GET /makes/{make}/models/{model}/generations` with the same key, cache and stale-response guard as the model list, passing `kind` when the picker or the chosen model has one. Options read `"{name} ({start}–{end})"`; an open end is `"{start}–"`, an ended generation with no sourced last year `"{start}–?"`, and unknown years are left out. Values are generation ids, or names with `values: "name"`.
+- Generations are part of the full records some plans include, and most models have none yet, so the step is **hidden and disabled** (the `hidden` attribute on the select, its `<label for>`, a wrapping `<label>` and an element marked `data-vdb-field="generation"`) until the chosen model has generations the key may see: never for no model, Other, a kept model, an empty list, a 403, a 404, a network error or dataset mode. A hidden step is never required and is not submitted. A `403 plan_required` logs one `console.info` per page with the response's `upgrade_url`; nothing is shown to visitors and `onError` is not called.
+- With a year step too: picking the year first preselects the one generation whose span contains it (changeable); picking a generation never touches the year.
+- `.value`, `onChange` and `make-model-dropdown:change` carry `generation` (`{id, name, years}` or `null`) when a generation select is attached; `initialGeneration`, `setValue({generation})` and a server-rendered option restore it (by id or name; an unknown one is kept as given). The `idInput` id is unchanged.
+- `placeholderGeneration` in all eight locales: Generation, Generación, Generation, Génération, Generazione, Geração, Generacja, Generatie. Built fields' wrappers now carry `data-vdb-field="make"` (`model`, `year`, `generation`).
+
 ## 0.5.1
 
 - **Old-data notice.** In dataset mode, a pinned release (`version: "2026.08.1"`, or a `datasetUrl` at `@v2026.08.1`) more than two months older than today logs one `console.info` per page with its age and how to stay current (omit `version`, or use `@latest`). Releases are named `YYYY.MM.PATCH`, so no request is made; nothing is shown to visitors; `latest`, no version and embedded `data` never log it.

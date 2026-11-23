@@ -6,7 +6,8 @@
  * API or by the open VehiclesDB dataset file (no key): every make and model in
  * the dataset (cars, motorcycles, mopeds, vans, trucks, buses), reconciled from
  * official national vehicle registers; live counts at vehiclesdb.com/makes. An optional third step picks the model
- * year.
+ * year, and API keys whose plan includes full records can add the model's
+ * generation.
  *
  * One tag: `<div data-vehiclesdb-picker></div>` next to this script is a whole
  * install (see README, "One tag").
@@ -34,6 +35,7 @@
     initialModel: null,    // slug (or name) preselected once its make's models load
     initialYear: null,     // e.g. 2019 — preselected once its model's years fill
     yearFallback: "range", // a model with no register span: "range" | "none"
+    initialGeneration: null, // a generation id (or name) preselected once its model's generations load
     values: "slug",        // what option values hold: "slug" | "name"
     includeOther: false,   // append an "Other / not listed" escape hatch
     otherLabel: "Other / not listed", // its text
@@ -48,8 +50,9 @@
     placeholderMake: "Make",
     placeholderModel: "Model",
     placeholderYear: "Year",
+    placeholderGeneration: "Generation",
     requiredMessage: "Please select a vehicle make.", // validity message on a required make field
-    onChange: null,        // ({ make, model }) => {} — plus `year`/`id` when a year select/idInput is attached
+    onChange: null,        // ({ make, model }) => {} — plus `year`/`generation`/`id` when those are attached
     onError: null          // (error) => {}
   }
 
@@ -61,6 +64,7 @@
       placeholderMake: "Make",
       placeholderModel: "Model",
       placeholderYear: "Year",
+      placeholderGeneration: "Generation",
       otherLabel: "Other / not listed",
       requiredMessage: "Please select a vehicle make.",
       attributionText: "Vehicle data by {source} ({license})"
@@ -69,6 +73,7 @@
       placeholderMake: "Marca",
       placeholderModel: "Modelo",
       placeholderYear: "Año",
+      placeholderGeneration: "Generación",
       otherLabel: "Otro / no está en la lista",
       requiredMessage: "Selecciona la marca del vehículo.",
       attributionText: "Datos de vehículos de {source} ({license})"
@@ -77,6 +82,7 @@
       placeholderMake: "Marke",
       placeholderModel: "Modell",
       placeholderYear: "Baujahr",
+      placeholderGeneration: "Generation",
       otherLabel: "Andere / nicht aufgeführt",
       requiredMessage: "Bitte wählen Sie die Fahrzeugmarke aus.",
       attributionText: "Fahrzeugdaten von {source} ({license})"
@@ -85,6 +91,7 @@
       placeholderMake: "Marque",
       placeholderModel: "Modèle",
       placeholderYear: "Année",
+      placeholderGeneration: "Génération",
       otherLabel: "Autre / non répertorié",
       requiredMessage: "Veuillez sélectionner la marque du véhicule.",
       attributionText: "Données véhicules fournies par {source} ({license})"
@@ -93,6 +100,7 @@
       placeholderMake: "Marca",
       placeholderModel: "Modello",
       placeholderYear: "Anno",
+      placeholderGeneration: "Generazione",
       otherLabel: "Altro / non in elenco",
       requiredMessage: "Selezionare la marca del veicolo.",
       attributionText: "Dati sui veicoli forniti da {source} ({license})"
@@ -101,6 +109,7 @@
       placeholderMake: "Marca",
       placeholderModel: "Modelo",
       placeholderYear: "Ano",
+      placeholderGeneration: "Geração",
       otherLabel: "Outro / não listado",
       requiredMessage: "Selecione a marca do veículo.",
       attributionText: "Dados de veículos fornecidos por {source} ({license})"
@@ -109,6 +118,7 @@
       placeholderMake: "Marka",
       placeholderModel: "Model",
       placeholderYear: "Rok",
+      placeholderGeneration: "Generacja",
       otherLabel: "Inne / brak na liście",
       requiredMessage: "Proszę wybrać markę pojazdu.",
       attributionText: "Dane o pojazdach: {source} ({license})"
@@ -117,6 +127,7 @@
       placeholderMake: "Merk",
       placeholderModel: "Model",
       placeholderYear: "Bouwjaar",
+      placeholderGeneration: "Generatie",
       otherLabel: "Anders / niet vermeld",
       requiredMessage: "Selecteer het merk van het voertuig.",
       attributionText: "Voertuiggegevens van {source} ({license})"
@@ -176,6 +187,14 @@
   const STALE_DOCS_URL = "https://github.com/vehiclesdb/make-model-dropdown#keeping-the-data-current"
   let staleNoticeShown = false
 
+  // The generation step's plan notice: one console.info per page, the first
+  // time the API says the key's plan does not include generations. After
+  // that, no more generation requests for that API and key on this page (a
+  // plan does not change between two clicks).
+  const PRICING_URL = "https://vehiclesdb.com/pricing"
+  let planNoticeShown = false
+  const planBlocked = new Set()
+
   // The same file the SDKs and the Ruby gem read (dist/vehicles.min.json
   // lacks names, aliases, forms and availability, so it cannot serve here).
   const DATASET_BASE = "https://cdn.jsdelivr.net/gh/vehiclesdb/vehiclesdb"
@@ -203,7 +222,11 @@
     return `${apiBase}/makes/${encodeURIComponent(slug)}/logo?variant=emblem`
   }
 
-  async function fetchJSON(url, key, collection) {
+  function namedItem(item) {
+    return Boolean(item) && typeof item.name === "string" && typeof item.slug === "string"
+  }
+
+  async function fetchJSON(url, key, collection, valid = namedItem) {
     const cacheKey = requestCacheKey(url, key)
     if (jsonCache.has(cacheKey)) return jsonCache.get(cacheKey)
     const promise = fetch(url, { headers: { Authorization: `Bearer ${key}` } }).then(async (response) => {
@@ -212,12 +235,12 @@
         const error = new Error(body.message || `VehiclesDB API answered ${response.status}`)
         error.status = response.status
         error.code = body.error
+        error.body = body
         throw error
       }
       const body = await response.json()
       const items = body && body[collection]
-      if (!Array.isArray(items) || items.some((item) =>
-        !item || typeof item.name !== "string" || typeof item.slug !== "string")) {
+      if (!Array.isArray(items) || items.some((item) => !valid(item))) {
         throw new Error(`VehiclesDB API returned malformed ${collection} data`)
       }
       return body
@@ -583,6 +606,45 @@
     return items
   }
 
+  // ---- Generations (API mode, plans with full records) ---------------------
+  // A row of GET /makes/{make}/models/{model}/generations: {id, name,
+  // years: {start, end}, ended}. Only id and name are required; a year is a
+  // year or it is unknown, and an unknown year is never filled in.
+  function generationRow(item) {
+    return Boolean(item) && typeof item.id === "string" && item.id !== "" && typeof item.name === "string"
+  }
+
+  function knownYear(value) {
+    return Number.isInteger(value) && value >= FIRST_YEAR ? value : null
+  }
+
+  function generationYears(item) {
+    const years = item && item.years
+    return { start: knownYear(years && years.start), end: knownYear(years && years.end) }
+  }
+
+  // "Mk7 (2012–2020)", "8Y (2020–)" (still in production), "B5 (–2005)",
+  // or the bare name when no year is known. A generation that has ended
+  // without a sourced last year shows "2003–?", never "2003–" (which reads
+  // as still in production) and never a guessed year.
+  function generationLabel(item) {
+    const { start, end } = generationYears(item)
+    if (start == null && end == null) return item.name
+    const tail = end != null ? String(end) : start != null && item.ended === true ? "?" : ""
+    return `${item.name} (${start != null ? start : ""}–${tail})`
+  }
+
+  // Does this generation's span contain `year`? "yes", "maybe" (a bound is
+  // unknown, so it cannot be ruled out) or "no".
+  function generationContains(item, year) {
+    const { start, end } = generationYears(item)
+    if (start != null && year < start) return "no"
+    if (end != null && year > end) return "no"
+    if (start == null) return "maybe"
+    if (end == null && item.ended === true) return "maybe"
+    return "yes"
+  }
+
   // The credit line: the host's words around two links it cannot drop. A
   // template missing {source} or {license} (or not a string) falls back to
   // the locale's own wording, with a warning: the credit is a licence
@@ -677,6 +739,36 @@
       if (!this.config.initialYear && this.yearSelect?.value) {
         this.config.initialYear = this.yearSelect.value
       }
+      // The generation depends on the model too. It is the only step that
+      // can be absent for a model: hidden (and disabled, so it is neither
+      // required nor submitted) until a model with generations the key's
+      // plan may see is chosen. See showGeneration.
+      this.generationSelect = this.config.generation ? resolveEl(this.config.generation, "generation") : null
+      if (this.generationSelect && !this.modelSelect) {
+        throw new Error("VehiclesDropdown: generation needs a model <select> to depend on")
+      }
+      if (this.generationSelect && [ this.makeSelect, this.modelSelect, this.yearSelect ].includes(this.generationSelect)) {
+        throw new Error("VehiclesDropdown: generation must be a different <select> element from make, model and year")
+      }
+      if (this.generationSelect) {
+        if (!this.config.initialGeneration && this.generationSelect.value) {
+          this.config.initialGeneration = this.generationSelect.value
+        }
+        const select = this.generationSelect
+        const labels = select.id
+          ? Array.from(select.ownerDocument.querySelectorAll("label[for]")).filter((label) => label.htmlFor === select.id)
+          : []
+        // What hides with the step: the select, its <label for>, a <label>
+        // wrapped around it, and a wrapper the page marks
+        // data-vdb-field="generation" (the one-tag install marks its own).
+        this.generationTargets = Array.from(new Set([ select, ...labels, select.closest("label"),
+          select.closest('[data-vdb-field="generation"]') ].filter(Boolean)))
+        this.generationRequired = select.required
+        this.generationHiddenByWidget = []
+        this.generationDisabledByWidget = false
+        this.generationShown = true
+        this.showGeneration(false)
+      }
       // The canonical id of the selected model, for the host's database. Its
       // server-rendered value is a stored id: the strongest answer there is
       // for which record the saved model is (see findModelById).
@@ -698,10 +790,19 @@
         this.makeChanged()
       }
       this.handleModelChange = () => { this.modelChanged() }
-      this.handleYearChange = () => { this.notify() }
+      this.handleYearChange = () => {
+        this.matchGenerationToYear()
+        this.notify()
+      }
+      this.handleGenerationChange = () => {
+        // The visitor chose: a later year pick no longer moves it.
+        this.generationFromYear = false
+        this.notify()
+      }
       this.makeSelect.addEventListener("change", this.handleMakeChange)
       if (this.modelSelect) this.modelSelect.addEventListener("change", this.handleModelChange)
       if (this.yearSelect) this.yearSelect.addEventListener("change", this.handleYearChange)
+      if (this.generationSelect) this.generationSelect.addEventListener("change", this.handleGenerationChange)
       this.form = this.makeSelect.form
       this.handleFormReset = () => {
         // The reset event fires before the browser restores form controls.
@@ -711,6 +812,7 @@
           if (this.destroyed) return
           this.initialModelApplied = false
           this.initialYearApplied = false
+          this.initialGenerationApplied = false
           this.combobox?.sync()
           this.makeChanged()
         }, 0)
@@ -835,16 +937,18 @@
     // Set a stored make/model (and year, and id) after attach, by the same
     // rules as the initial values: resolved to the canonical options when the
     // data can, kept as given when it cannot. Resolves once applied.
-    async setValue({ make = null, model = null, year = null, id = null } = {}) {
+    async setValue({ make = null, model = null, year = null, generation = null, id = null } = {}) {
       await this.loading
       if (this.destroyed || !this.makes) return
       this.config.initialMake = make
       this.config.initialModel = model
       this.config.initialYear = year
+      this.config.initialGeneration = generation
       this.initialId = id || ""
       this.modelFromHost = false
       this.initialModelApplied = false
       this.initialYearApplied = false
+      this.initialGenerationApplied = false
       this.renderMakes()
       this.initialMakeItem = make ? findMake(this.makes, make) : null
       this.initialMakeKept = null
@@ -853,6 +957,8 @@
       if (outcome === "kept" || outcome === "other") this.initialMakeKept = wanted
       this.combobox?.sync()
       await this.makeChanged()
+      // The generation list is a request of its own: resolve once it lands.
+      await this.generationLoading
     }
 
     async makeChanged() {
@@ -871,6 +977,7 @@
         fillSelect(this.modelSelect, this.config.placeholderModel, [], this.config, "")
       }
       if (this.yearSelect) this.fillYears()
+      if (this.generationSelect) this.clearGenerations()
       this.notify()
       if (this.destroyed) return
       if (!this.modelSelect) return
@@ -958,8 +1065,10 @@
 
     modelChanged() {
       // Same rule as the make: refill the year for THIS model before
-      // announcing, so no payload ever pairs a model with another one's year.
+      // announcing, so no payload ever pairs a model with another one's year
+      // (or generation).
       if (this.yearSelect) this.fillYears()
+      if (this.generationSelect) this.generationLoading = this.loadGenerations()
       this.notify()
     }
 
@@ -998,11 +1107,7 @@
 
       // The preselected year, applied exactly once and only to its intended
       // make and model — after that the person is driving.
-      const make = this.makes?.find((m) => optionValue(this.config, m) === this.makeSelect.value)
-      const wantedModel = this.config.initialModel
-      const intendedInitialModel = !wantedModel || modelValue === wantedModel ||
-        (model && model.slug === this.initialModelItem?.slug)
-      if (this.config.initialYear && !this.initialYearApplied && this.isInitialMake(make) && intendedInitialModel) {
+      if (this.config.initialYear && !this.initialYearApplied && this.isInitialSelection(model)) {
         this.initialYearApplied = true
         this.keepYear(String(this.config.initialYear), modelValue)
       }
@@ -1010,6 +1115,17 @@
       // Disabled only when there is truly nothing to choose: with
       // includeOther the escape hatch is a choice, and so is a kept year.
       this.disableYear(none && select.options.length === 1)
+    }
+
+    // Are the selected make and model (`model`: the selected record, or null)
+    // the ones the initial values name? The year and generation steps apply
+    // their initial value only then: after that the person is driving.
+    isInitialSelection(model) {
+      const make = this.makes?.find((m) => optionValue(this.config, m) === this.makeSelect.value)
+      const wantedModel = this.config.initialModel
+      const intendedInitialModel = !wantedModel || this.modelSelect.value === wantedModel ||
+        Boolean(model && model.slug === this.initialModelItem?.slug)
+      return this.isInitialMake(make) && intendedInitialModel
     }
 
     // NEVER DROP A VALUE THE HOST GAVE US. Spans are register years, so an
@@ -1050,6 +1166,202 @@
         this.yearSelect.disabled = false
         this.yearDisabledByWidget = false
       }
+    }
+
+    // ---- The generation step ---------------------------------------------
+    // Generations are paid data, and most models have none on record yet,
+    // so the step is shown ONLY for a model with generations the key's plan
+    // may see. Everything else hides it: no model, Other, a kept model, an
+    // empty list, a 403 (plan), a 404, a network error, and dataset mode,
+    // which has no generations at all. Hidden means hidden (the `hidden`
+    // attribute on the select, its labels and its marked wrapper) and
+    // disabled, so it is neither required nor submitted, and nothing is
+    // shown to the visitor.
+
+    // No model, or a new one on its way: empty the list and hide the step.
+    // Bumping the turn makes any request still in flight a stale one.
+    clearGenerations() {
+      this.generationTurn = (this.generationTurn || 0) + 1
+      this.generationFromYear = false
+      fillSelect(this.generationSelect, this.config.placeholderGeneration, [], this.config, "")
+      this.showGeneration(false)
+    }
+
+    async loadGenerations() {
+      const select = this.generationSelect
+      const modelValue = this.modelSelect.value
+      const selected = this.selectedModel()
+      const model = selected && !selected.kept ? selected : null
+      const make = this.modelsMake
+      // A new model: whatever the step showed belonged to the old one.
+      const turn = this.generationTurn = (this.generationTurn || 0) + 1
+      this.generationFromYear = false
+      fillSelect(select, this.config.placeholderGeneration, [], this.config, "")
+      const blockKey = requestCacheKey(this.api, this.config.key)
+      if (this.datasetMode || !model || !make || !make.slug || planBlocked.has(blockKey)) {
+        this.showGeneration(false)
+        return
+      }
+      // While the list loads, a step already on screen stays where it is
+      // (disabled, so the form never waits on it); a hidden one stays hidden.
+      if (this.generationShown) this.disableGeneration(true)
+
+      const params = new URLSearchParams()
+      const kind = this.config.kind || model.kind
+      if (kind) params.set("kind", kind)
+      const url = `${this.api}/makes/${encodeURIComponent(make.slug)}/models/${encodeURIComponent(model.slug)}/generations` +
+        (params.toString() ? `?${params}` : "")
+      let rows = []
+      try {
+        rows = (await fetchJSON(url, this.config.key, "generations", generationRow)).generations
+      } catch (error) {
+        if (error && error.status === 403 && error.code === "plan_required") {
+          planBlocked.add(blockKey)
+          if (!planNoticeShown) {
+            planNoticeShown = true
+            const upgrade = (error.body && typeof error.body.upgrade_url === "string" && error.body.upgrade_url) || PRICING_URL
+            console.info("VehiclesDropdown: the generation step is hidden because generations are part of the full " +
+              `records this API key's plan does not include. Plans that include them: ${upgrade}`)
+          }
+        } else if (!error || (error.status !== 404 && error.status !== 403)) {
+          // Never to the visitor and never through onError (the picker
+          // works without the step): one line for the developer.
+          if (!this.generationWarned) {
+            this.generationWarned = true
+            console.warn("[VehiclesDropdown] generations could not load; the step stays hidden:", error && error.message)
+          }
+        }
+        rows = []
+      }
+      if (this.destroyed || turn !== this.generationTurn || this.modelSelect.value !== modelValue) return
+      this.fillGenerations(rows, model)
+    }
+
+    fillGenerations(rows, model) {
+      const select = this.generationSelect
+      if (!rows.length) {
+        fillSelect(select, this.config.placeholderGeneration, [], this.config, "")
+        this.showGeneration(false)
+        this.notify()
+        return
+      }
+      const items = rows.map((row) => ({ id: row.id, name: row.name, years: row.years, ended: row.ended }))
+      select.replaceChildren(new Option(this.config.placeholderGeneration, "", true, true))
+      for (const item of items) {
+        const value = this.config.values === "name" ? item.name : item.id
+        const option = new Option(generationLabel(item), value)
+        optionItems.set(option, item)
+        select.add(option)
+      }
+      this.showGeneration(true)
+
+      if (this.config.initialGeneration != null && this.config.initialGeneration !== "" &&
+        !this.initialGenerationApplied && this.isInitialSelection(model)) {
+        this.initialGenerationApplied = true
+        this.keepGeneration(String(this.config.initialGeneration), items)
+      } else {
+        // A year picked while the list loaded (or restored with the model)
+        // counts as picked first.
+        this.matchGenerationToYear()
+      }
+      this.notify()
+    }
+
+    // The stored generation: its option by id, then by name (by `norm`).
+    // NEVER BLANKED: one the list does not carry is kept as given
+    // (keepUnknown), selected, under the placeholder.
+    keepGeneration(wanted, items) {
+      const select = this.generationSelect
+      const k = key(wanted)
+      const item = items.find((each) => each.id === wanted) || items.find((each) => key(each.name) === k) ||
+        items.find((each) => key(each.id) === k)
+      if (item) return preselect(select, optionFor(select, item))
+      if (!this.config.keepUnknown) {
+        console.warn(`[VehiclesDropdown] initial generation ${JSON.stringify(wanted)} is not on record for this model; selection cleared`)
+        return
+      }
+      const option = new Option(wanted, wanted)
+      optionItems.set(option, { kept: true, value: wanted })
+      select.insertBefore(option, select.options[1] || null)
+      preselect(select, option)
+    }
+
+    // YEAR FIRST, THEN GENERATION: a visitor who picks the year has said
+    // which generation it is whenever exactly one generation's span holds
+    // that year (and no generation with an unknown bound might), so select
+    // it for them; they can still change it. Only a generation that is
+    // empty or was chosen this way moves; one the visitor picked never
+    // does, and picking a generation never touches the year.
+    matchGenerationToYear() {
+      const select = this.generationSelect
+      if (!select || !this.yearSelect || !this.generationShown) return
+      if (select.value && !this.generationFromYear) return
+      const year = /^\d+$/.test(this.yearSelect.value) ? Number(this.yearSelect.value) : null
+      const options = Array.from(select.options).filter((option) => {
+        const item = option.value && optionItems.get(option)
+        return item && !item.kept
+      })
+      const verdicts = year == null ? [] : options.map((option) => [ option, generationContains(optionItems.get(option), year) ])
+      const candidates = verdicts.filter(([, verdict]) => verdict !== "no")
+      if (candidates.length === 1 && candidates[0][1] === "yes") {
+        select.value = candidates[0][0].value
+        this.generationFromYear = true
+      } else if (this.generationFromYear) {
+        select.value = ""
+        this.generationFromYear = false
+      }
+    }
+
+    // Show or hide the step. The widget only undoes what it did: a target
+    // the page had already hidden stays hidden, a select the page disabled
+    // stays disabled, and `required` comes back as the page set it.
+    showGeneration(show) {
+      if (show === this.generationShown) {
+        if (show) this.disableGeneration(false)
+        return
+      }
+      this.generationShown = show
+      const select = this.generationSelect
+      if (show) {
+        this.generationHiddenByWidget.forEach((el) => { el.hidden = false })
+        this.generationHiddenByWidget = []
+        select.required = this.generationRequired
+        this.disableGeneration(false)
+      } else {
+        this.generationHiddenByWidget = this.generationTargets.filter((el) => !el.hidden)
+        this.generationHiddenByWidget.forEach((el) => { el.hidden = true })
+        // A hidden step is never required.
+        select.required = false
+        this.disableGeneration(true)
+      }
+    }
+
+    disableGeneration(disable) {
+      const select = this.generationSelect
+      if (disable && !this.generationDisabledByWidget && !select.disabled) {
+        select.disabled = true
+        this.generationDisabledByWidget = true
+      } else if (!disable && this.generationDisabledByWidget) {
+        select.disabled = false
+        this.generationDisabledByWidget = false
+      }
+    }
+
+    // The selected generation as the payload carries it: {id, name, years}
+    // (years as the API gives them, {start, end}, an unknown one null), a
+    // kept value as {id, name, years: null} with the given text under the
+    // field `values` says it is, or null.
+    currentGeneration() {
+      const select = this.generationSelect
+      if (!select || !this.generationShown || !select.value) return null
+      const item = optionItems.get(select.options[select.selectedIndex])
+      if (!item) return null
+      if (item.kept) {
+        return this.config.values === "name"
+          ? { id: null, name: item.value, years: null }
+          : { id: item.value, name: null, years: null }
+      }
+      return { id: item.id, name: item.name, years: generationYears(item) }
     }
 
     async logoUrl(item) {
@@ -1431,7 +1743,10 @@
         const year = this.yearSelect.value
         value.year = !year ? null : year === this.config.otherValue ? year : Number(year)
       }
-      // `id` likewise exists only when an idInput does.
+      // `generation` likewise exists only when a generation select does.
+      if (this.generationSelect) value.generation = this.currentGeneration()
+      // `id` likewise exists only when an idInput does. It stays the
+      // model's id: the generation id is its own field, never folded in.
       if (this.idInput) value.id = this.currentId() || null
       return value
     }
@@ -1444,6 +1759,11 @@
       if (this.yearSelect) {
         this.yearSelect.removeEventListener("change", this.handleYearChange)
         this.disableYear(false)
+      }
+      if (this.generationSelect) {
+        this.generationSelect.removeEventListener("change", this.handleGenerationChange)
+        this.showGeneration(true)
+        this.disableGeneration(false)
       }
       this.form?.removeEventListener("reset", this.handleFormReset)
       if (this.combobox) this.combobox.destroy()
@@ -1458,7 +1778,8 @@
   // ---- One tag: auto-initialisation from data-* attributes ----------------
   // `<div data-vehiclesdb-picker></div>` plus the script tag is a whole
   // install: the widget builds labelled selects inside the element (or uses
-  // the ones marked data-make / data-model / data-year) and attaches itself.
+  // the ones marked data-make / data-model / data-year / data-generation) and
+  // attaches itself.
   // Every attribute maps to the attach() option of the same meaning; an
   // attribute missing on the element is read from the script tag, so one
   // `<script data-key=…>` can configure every picker on the page.
@@ -1502,6 +1823,7 @@
       placeholderMake: text("placeholder-make"),
       placeholderModel: text("placeholder-model"),
       placeholderYear: text("placeholder-year"),
+      placeholderGeneration: text("placeholder-generation"),
       search: pickerFlag(el, "search") || undefined,
       logos: pickerFlag(el, "logos") || undefined,
       // The existing `attribution: false` (paid plans only, like attach());
@@ -1521,7 +1843,7 @@
 
   // Labelled native selects (and the hidden id field), built inside the
   // container. Returns the elements and everything to remove on destroy().
-  function buildFields(el, config, withYear) {
+  function buildFields(el, config, withYear, withGeneration) {
     const doc = el.ownerDocument
     const base = uniqueId(doc, "vdb-picker")
     const created = []
@@ -1529,6 +1851,7 @@
     const field = (step, label, name) => {
       const wrap = doc.createElement("div")
       wrap.className = "vdb-field"
+      wrap.setAttribute("data-vdb-field", step)
       const labelEl = doc.createElement("label")
       labelEl.htmlFor = `${base}-${step}`
       labelEl.textContent = label
@@ -1545,19 +1868,25 @@
     const make = field("make", config.placeholderMake, pickerAttr(el, "name-make") || "make")
     const model = field("model", config.placeholderModel, pickerAttr(el, "name-model") || "model")
     const year = withYear ? field("year", config.placeholderYear, pickerAttr(el, "name-year") || "year") : null
-    return { make, model, year, created }
+    // Built like the others; the instance hides it (wrapper, label and
+    // select) until a model with generations the key may see is chosen.
+    const generation = withGeneration
+      ? field("generation", config.placeholderGeneration, pickerAttr(el, "name-generation") || "generation")
+      : null
+    return { make, model, year, generation, created }
   }
 
   function mountPicker(el) {
     const options = pickerOptions(el)
     // Labels are the placeholders: the locale's, or the page's own words.
     const config = configFor({ locale: options.locale, placeholderMake: options.placeholderMake,
-      placeholderModel: options.placeholderModel, placeholderYear: options.placeholderYear })
+      placeholderModel: options.placeholderModel, placeholderYear: options.placeholderYear,
+      placeholderGeneration: options.placeholderGeneration })
     const own = (step) => el.querySelector(`select[data-${step}]`)
     const existing = own("make")
     const fields = existing
-      ? { make: existing, model: own("model"), year: own("year"), created: [] }
-      : buildFields(el, config, pickerFlag(el, "year"))
+      ? { make: existing, model: own("model"), year: own("year"), generation: own("generation"), created: [] }
+      : buildFields(el, config, pickerFlag(el, "year"), pickerFlag(el, "generation"))
     let idInput = el.querySelector("input[data-id]")
     const idName = pickerAttr(el, "id-name")
     if (!idInput && idName && fields.model) {
@@ -1570,7 +1899,8 @@
     let instance
     try {
       instance = new Instance(Object.assign(options, {
-        make: fields.make, model: fields.model || undefined, year: fields.year || undefined, idInput: idInput || undefined
+        make: fields.make, model: fields.model || undefined, year: fields.year || undefined,
+        generation: fields.generation || undefined, idInput: idInput || undefined
       }))
     } catch (error) {
       fields.created.forEach((node) => node.remove())
@@ -1626,6 +1956,6 @@
     norm,
     findMake,
     findModel,
-    version: "0.5.1"
+    version: "0.6.0"
   }
 })
