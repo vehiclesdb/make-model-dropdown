@@ -8,6 +8,63 @@ Zero dependencies. No build step. Works with plain HTML forms, React, Vue, Rails
 
 **[Car make and model dropdown: live demo and docs →](https://vehiclesdb.com/make-and-model-dropdown)**
 
+## One tag
+
+Paste this where the picker should appear. No account, no key, no script of your own:
+
+```html
+<div data-vehiclesdb-picker data-kind="car"></div>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0" defer></script>
+```
+
+The script finds every element with `data-vehiclesdb-picker`, builds a labelled make `<select>` and model `<select>` inside it (named `make` and `model`, so they submit with the surrounding form), and fills them from the open dataset (one request of about 0.6 MB compressed, shared by every picker on the page). The credit line goes under the last field.
+
+With a free key from [vehiclesdb.com](https://vehiclesdb.com/users/sign_up?for=picker&cta=readme_make_model_dropdown) the same block reads the API instead: a make list of about 8 KB gzipped instead of the dataset file, make logos, the most-registered makes first (`data-top-makes`), and your picker's traffic on your dashboard.
+
+```html
+<div data-vehiclesdb-picker data-key="vdb_pk_your_key" data-kind="car" data-country="es"
+     data-year data-search data-logos data-id-name="vehiclesdb_id"></div>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0" defer></script>
+```
+
+Each attribute is the `attach()` option of the same meaning (see [Options](#options)). An attribute missing on the element is read from the `<script>` tag, so `<script src=… data-key="vdb_pk_…">` configures every picker on the page.
+
+| Attribute | Option | Notes |
+|---|---|---|
+| `data-key` | `key` | your publishable key |
+| `data-source` | `source` | `api` or `dataset`; with no key and no source, `dataset` |
+| `data-kind` | `kind` | `car`, `motorcycle`, `moped`, `van`, `truck`, `bus` |
+| `data-country` | `country` | two-letter code |
+| `data-order` | `order` | `popular` (default) or `alphabetical` |
+| `data-top-makes` | `topMakes` | API only |
+| `data-year` | `year` | present: add the model-year step |
+| `data-search` | `search` | present: searchable combobox |
+| `data-logos` | `logos` | present: make logos (search mode, needs a key) |
+| `data-locale` | `locale` | `en` or `es`: default labels, placeholders and the credit line |
+| `data-values` | `values` | `slug` (default) or `name` |
+| `data-include-other` | `includeOther` | present: the "Other / not listed" row |
+| `data-other-label` | `otherLabel` | its text |
+| `data-placeholder-make`, `data-placeholder-model`, `data-placeholder-year` | `placeholderMake`, … | also the built fields' labels |
+| `data-name-make`, `data-name-model`, `data-name-year` | | the fields' `name`s (default `make`, `model`, `year`) |
+| `data-id-name` | `idInput` | adds a hidden input with this name, kept filled with `kind/make/model` |
+| `data-required` | | marks the built fields `required` |
+| `data-attribution="false"` | `attribution: false` | paid plans only, as with `attach()`; free use keeps the credit line |
+
+A boolean attribute is on when present and off when it is absent or `"false"`.
+
+**Your own fields.** If the element already holds selects marked `data-make`, `data-model` and (optionally) `data-year`, and an input marked `data-id`, the widget uses those instead of building its own, so your labels, classes and server-rendered values stay as they are:
+
+```html
+<div data-vehiclesdb-picker data-kind="car">
+  <label for="car_make">Make</label>  <select id="car_make" name="car[make]" data-make></select>
+  <label for="car_model">Model</label> <select id="car_model" name="car[model]" data-model></select>
+</div>
+```
+
+**Styling.** The element gets the class `vdb-picker` and each built field (label and select) is wrapped in `<div class="vdb-field">`; no stylesheet is injected, so your page's CSS styles them. Ids are unique per picker, so several pickers can share a page.
+
+**Pages that add pickers later** (single-page apps, Turbo): call `VehiclesDropdown.autoInit(root)` after inserting the element; it mounts what is new under `root` (default: the document) and never mounts an element twice. It returns the new instances; `instance.destroy()` removes what the widget built, after which the element can be mounted again. The ES module build (`import`) never mounts on import: call `autoInit()` yourself. Only the `<script>` build mounts by itself.
+
 ## Quick start
 
 Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settings/api-keys) (it is safe to ship in page source; lock it to your domain in Settings), then:
@@ -16,7 +73,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.2"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -59,7 +116,7 @@ bin/importmap pin make-model-dropdown
 or pin the ES module from the CDN in `config/importmap.rb`:
 
 ```ruby
-pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.2/make-model-dropdown.mjs"
+pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0/make-model-dropdown.mjs"
 ```
 
 ```js
@@ -261,7 +318,7 @@ npm ci
 npm test
 ```
 
-The test suite runs the published UMD artifact in a real DOM implementation and covers dependent loading, the year step and its fallbacks, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, object-URL cleanup, dataset mode, stored-value preservation, the id field and the ES module build.
+The test suite runs the published UMD artifact in a real DOM implementation and covers the one-tag install (attributes, built and existing fields, several pickers, the script tag), dependent loading, the year step and its fallbacks, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, object-URL cleanup, dataset mode, stored-value preservation, the id field and the ES module build.
 
 `make-model-dropdown.mjs` is generated from `make-model-dropdown.js` (the UMD source): after editing the source, run `npm run build:esm`. CI and `npm publish` refuse a stale copy.
 

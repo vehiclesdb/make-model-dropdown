@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- **One tag: install with no inline script.** The `<script>` build now mounts a picker in every element with `data-vehiclesdb-picker`, once when it runs and again on `DOMContentLoaded` if the page is still parsing. Options come from `data-*` attributes on the element, then on the script tag: `data-key`, `data-source`, `data-kind`, `data-country`, `data-order`, `data-top-makes`, `data-year`, `data-search`, `data-logos`, `data-locale`, `data-values`, `data-include-other`, `data-other-label`, `data-placeholder-make`/`-model`/`-year`, `data-name-make`/`-model`/`-year`, `data-id-name`, `data-required`, and `data-attribution="false"` (the existing `attribution: false`, paid plans only). Each maps to the `attach()` option of the same meaning; nothing new is configurable.
+- An empty element gets labelled native selects (`<label for>`, ids unique per picker, labelled with the placeholders) wrapped in `.vdb-field`, the element gets `.vdb-picker`, and the credit line goes under the last field. No stylesheet is injected. Selects already in the element marked `data-make` / `data-model` / `data-year` (and an input marked `data-id`) are used instead.
+- With no key and no `data-source`, a picker reads the open dataset (`source: "dataset"`). `attach()` is unchanged: without a key it still requires `source: "dataset"`.
+- New `VehiclesDropdown.autoInit(root?)` for pickers added after load; it never mounts an element twice and returns the new instances. `destroy()` removes what auto-init built. A container that cannot mount (say `data-source="api"` with no key) is skipped with a warning.
+- The ES module build and `require()` never auto-mount; they export `autoInit`. Pages that only call `attach()` see no change.
+
 ## 0.4.2
 
 - **Logos only for makes that have one.** The API's make list carries `logo_url` (null when no logo is served); with `logos: true` the widget now requests a logo only for makes whose `logo_url` is set and shows the letter chip for the rest, with no request. A make list without the field (older API, a custom `apiBase`) is handled as before: every visible make is asked once. The logo is still fetched as the emblem variant, with the key in the Authorization header.
