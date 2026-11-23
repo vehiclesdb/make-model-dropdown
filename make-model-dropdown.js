@@ -44,7 +44,7 @@
     search: false,         // searchable combobox instead of a plain <select>
     attribution: true,     // "Vehicle data by VehiclesDB (CC-BY 4.0)" line (the licence's credit)
     attributionText: null, // its wording: a template with {source} and {license}, e.g. "Datos: {source} ({license})"
-    locale: "en",          // "en" | "es": default wording for the credit line, placeholders, Other and the required message
+    locale: "en",          // "en" | "es" | "de" | "fr" | "it" | "pt" | "pl" | "nl": default wording for the credit line, placeholders, Other and the required message
     placeholderMake: "Make",
     placeholderModel: "Model",
     placeholderYear: "Year",
@@ -72,6 +72,54 @@
       otherLabel: "Otro / no está en la lista",
       requiredMessage: "Selecciona la marca del vehículo.",
       attributionText: "Datos de vehículos de {source} ({license})"
+    },
+    de: {
+      placeholderMake: "Marke",
+      placeholderModel: "Modell",
+      placeholderYear: "Baujahr",
+      otherLabel: "Andere / nicht aufgeführt",
+      requiredMessage: "Bitte wählen Sie die Fahrzeugmarke aus.",
+      attributionText: "Fahrzeugdaten von {source} ({license})"
+    },
+    fr: {
+      placeholderMake: "Marque",
+      placeholderModel: "Modèle",
+      placeholderYear: "Année",
+      otherLabel: "Autre / non répertorié",
+      requiredMessage: "Veuillez sélectionner la marque du véhicule.",
+      attributionText: "Données véhicules fournies par {source} ({license})"
+    },
+    it: {
+      placeholderMake: "Marca",
+      placeholderModel: "Modello",
+      placeholderYear: "Anno",
+      otherLabel: "Altro / non in elenco",
+      requiredMessage: "Selezionare la marca del veicolo.",
+      attributionText: "Dati sui veicoli forniti da {source} ({license})"
+    },
+    pt: {
+      placeholderMake: "Marca",
+      placeholderModel: "Modelo",
+      placeholderYear: "Ano",
+      otherLabel: "Outro / não listado",
+      requiredMessage: "Selecione a marca do veículo.",
+      attributionText: "Dados de veículos fornecidos por {source} ({license})"
+    },
+    pl: {
+      placeholderMake: "Marka",
+      placeholderModel: "Model",
+      placeholderYear: "Rok",
+      otherLabel: "Inne / brak na liście",
+      requiredMessage: "Proszę wybrać markę pojazdu.",
+      attributionText: "Dane o pojazdach: {source} ({license})"
+    },
+    nl: {
+      placeholderMake: "Merk",
+      placeholderModel: "Model",
+      placeholderYear: "Bouwjaar",
+      otherLabel: "Anders / niet vermeld",
+      requiredMessage: "Selecteer het merk van het voertuig.",
+      attributionText: "Voertuiggegevens van {source} ({license})"
     }
   }
   // The credit's VehiclesDB link: the picker's own page, tagged so the site
@@ -80,7 +128,7 @@
   const SOURCE_URL = "https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit"
   const LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/"
 
-  // "es", "es-ES", "ES_es" → "es"; anything without a table → "en", warned.
+  // "es", "es-ES", "ES_es" → "es", "de-AT" → "de"; anything without a table → "en", warned.
   function localeFor(value) {
     if (value == null || value === "") return "en"
     const code = String(value).toLowerCase().split(/[-_]/)[0]
@@ -121,6 +169,12 @@
   // records (bus, truck, van) with one slug, and the canonical id needs the
   // one actually selected.
   const optionItems = new WeakMap()
+
+  // A pinned dataset release more than this many months behind today gets
+  // one console.info per page (see oldDatasetNotice).
+  const STALE_MONTHS = 2
+  const STALE_DOCS_URL = "https://github.com/vehiclesdb/make-model-dropdown#keeping-the-data-current"
+  let staleNoticeShown = false
 
   // The same file the SDKs and the Ruby gem read (dist/vehicles.min.json
   // lacks names, aliases, forms and availability, so it cannot serve here).
@@ -261,6 +315,32 @@
     // A failed fetch is not cached: the next widget (or a retry) asks again.
     promise.catch(() => datasetCache.delete(url))
     return promise
+  }
+
+  // A site that pins `version` (or a datasetUrl at `@v2026.10.1`) never gets
+  // new models or fixes. Releases are named YYYY.MM.PATCH, so the age needs
+  // no request: when the pinned month is more than STALE_MONTHS behind
+  // today, say so ONCE per page, in the console only (never to visitors).
+  function pinnedRelease(config) {
+    if (config.datasetUrl) {
+      const match = /@v?(\d{4})\.(\d{1,2})\.\d+(?:[/?#]|$)/.exec(String(config.datasetUrl))
+      return match ? { release: match[0].replace(/^@|[/?#]$/g, ""), year: Number(match[1]), month: Number(match[2]) } : null
+    }
+    const match = /^v?(\d{4})\.(\d{1,2})\.\d+$/.exec(String(config.version || "").trim())
+    return match ? { release: match[0], year: Number(match[1]), month: Number(match[2]) } : null
+  }
+
+  function oldDatasetNotice(config) {
+    if (staleNoticeShown || config.data) return
+    const pinned = pinnedRelease(config)
+    if (!pinned || pinned.month < 1 || pinned.month > 12) return
+    const now = new Date()
+    const age = (now.getFullYear() * 12 + now.getMonth() + 1) - (pinned.year * 12 + pinned.month)
+    if (age <= STALE_MONTHS) return
+    staleNoticeShown = true
+    console.info(`VehiclesDropdown: the pinned vehicle dataset release ${pinned.release} is ${age} months old, ` +
+      "so this picker is missing newer models and fixes. Omit `version` (or use @latest in `datasetUrl`) " +
+      `to keep it current: ${STALE_DOCS_URL}`)
   }
 
   // The scoped list, the same filters the API applies server-side: `kind`
@@ -481,14 +561,15 @@
     preselect(select, option)
   }
 
-  // A model's register span, or null. `years_on_record` reached the API
-  // after the widget did, so a missing key (older responses, mocks) means
+  // A model's register span, or null: the API's `years_on_record`, or, in
+  // dataset mode, the release file's `registration_years` (same {first,
+  // last} shape, 2026.11.3+). A missing key (older responses and releases, mocks) means
   // the same as an explicit null — and so does anything that is not a sane
   // {first, last} pair inside FIRST_YEAR..next year. Never trust a span
   // enough to render nonsense: `last: 1e300` passes Number.isInteger and,
   // since 1e300 - 1 === 1e300, would never finish counting down.
   function yearSpan(model, currentYear) {
-    const span = model && model.years_on_record
+    const span = model && (model.years_on_record || model.registration_years)
     if (!span || !Number.isInteger(span.first) || !Number.isInteger(span.last)) return null
     const sane = FIRST_YEAR <= span.first && span.first <= span.last && span.last <= currentYear + 1
     return sane ? span : null
@@ -531,7 +612,7 @@
   function attributionLine(container, config) {
     const p = document.createElement("p")
     p.className = "vdb-attribution"
-    p.style.cssText = "font-size:.75rem;color:#6b7280;margin:.375rem 0 0;"
+    p.style.cssText = "font-size:var(--vdb-credit-font-size, .75rem);color:var(--vdb-credit-color, #6b7280);margin:.375rem 0 0;"
     for (const part of attributionParts(config)) {
       if (part === "{source}") p.append(creditLink(SOURCE_URL, "VehiclesDB"))
       else if (part === "{license}") p.append(creditLink(LICENSE_URL, "CC-BY 4.0"))
@@ -565,6 +646,7 @@
       }
       // `data` is a dataset by definition; passing it is enough.
       this.datasetMode = this.config.source === "dataset" || this.config.data != null
+      if (this.datasetMode) oldDatasetNotice(this.config)
       const key = this.config.key
       if (!this.datasetMode && (typeof key !== "string" || !key.trim())) {
         throw new Error("VehiclesDropdown: pass your publishable API key as `key` (get one free at https://vehiclesdb.com), " +
@@ -1049,9 +1131,13 @@
       list.id = listId
       list.setAttribute("role", "listbox")
       list.className = "vdb-combobox-list"
-      list.style.cssText = "position:absolute;z-index:20;inset-inline:0;top:100%;max-height:16rem;" +
-        "overflow-y:auto;margin:.25rem 0 0;padding:.25rem;list-style:none;background:#fff;" +
-        "border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 10px 15px -3px rgb(0 0 0/.1);display:none;"
+      // Theming hooks: each colour/size the widget sets inline reads a CSS
+      // custom property first, today's value as the fallback (README, "Theming").
+      list.style.cssText = "position:absolute;z-index:var(--vdb-list-z-index, 20);inset-inline:0;top:100%;" +
+        "max-height:var(--vdb-list-max-height, 16rem);overflow-y:auto;margin:.25rem 0 0;padding:.25rem;" +
+        "list-style:none;background:var(--vdb-list-bg, #fff);color:var(--vdb-list-color, inherit);" +
+        "border:var(--vdb-list-border, 1px solid #e5e7eb);border-radius:.5rem;" +
+        "box-shadow:0 10px 15px -3px rgb(0 0 0/.1);display:none;"
 
       wrap.prepend(input)
       wrap.append(list)
@@ -1114,7 +1200,7 @@
         }
         active = index
         if (active < 0 || !rows[active]) return input.removeAttribute("aria-activedescendant")
-        rows[active].style.background = "#f3f4f6"
+        rows[active].style.background = "var(--vdb-list-highlight-bg, #f3f4f6)"
         rows[active].setAttribute("aria-selected", "true")
         rows[active].scrollIntoView({ block: "nearest" })
         input.setAttribute("aria-activedescendant", rows[active].id)
@@ -1540,6 +1626,6 @@
     norm,
     findMake,
     findModel,
-    version: "0.5.0"
+    version: "0.5.1"
   }
 })
