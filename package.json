@@ -1,6 +1,6 @@
 {
   "name": "make-model-dropdown",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Car make and model dropdown for any web page. A dependent make/model picker with vehicle data from VehiclesDB: live from the API with a publishable key, or keyless from the open dataset. every make and model, cars and motorcycles to trucks and buses, from official national vehicle registers. Zero dependencies.",
   "keywords": [
     "car make model dropdown",
@@ -26,8 +26,10 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test",
+    "build": "node scripts/build-esm.js && node scripts/build-min.js",
     "build:esm": "node scripts/build-esm.js",
-    "prepublishOnly": "node scripts/build-esm.js --check"
+    "build:min": "node scripts/build-min.js",
+    "prepublishOnly": "node scripts/build-esm.js --check && node scripts/build-min.js --check"
   },
   "main": "make-model-dropdown.js",
   "module": "make-model-dropdown.mjs",
@@ -39,11 +41,13 @@
     },
     "./make-model-dropdown.mjs": "./make-model-dropdown.mjs",
     "./make-model-dropdown.js": "./make-model-dropdown.js",
+    "./make-model-dropdown.min.js": "./make-model-dropdown.min.js",
     "./index.mjs": "./index.mjs",
     "./package.json": "./package.json"
   },
   "files": [
     "make-model-dropdown.js",
+    "make-model-dropdown.min.js",
     "make-model-dropdown.mjs",
     "index.mjs",
     "README.md",
@@ -52,6 +56,7 @@
   ],
   "sideEffects": true,
   "devDependencies": {
-    "jsdom": "^31.0.0"
+    "jsdom": "^31.0.0",
+    "terser": "5.51.2"
   }
 }

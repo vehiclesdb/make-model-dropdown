@@ -14,7 +14,7 @@ Paste this where the picker should appear. No account, no key, no script of your
 
 ```html
 <div data-vehiclesdb-picker data-kind="car"></div>
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1" defer></script>
 ```
 
 The script finds every element with `data-vehiclesdb-picker`, builds a labelled make `<select>` and model `<select>` inside it (named `make` and `model`, so they submit with the surrounding form), and fills them from the open dataset (one request of about 0.6 MB compressed, shared by every picker on the page). The credit line goes under the last field.
@@ -24,7 +24,7 @@ With a free key from [vehiclesdb.com](https://vehiclesdb.com/users/sign_up?for=p
 ```html
 <div data-vehiclesdb-picker data-key="vdb_pk_your_key" data-kind="car" data-country="es"
      data-year data-search data-logos data-id-name="vehiclesdb_id"></div>
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1" defer></script>
 ```
 
 Each attribute is the `attach()` option of the same meaning (see [Options](#options)). An attribute missing on the element is read from the `<script>` tag, so `<script src=… data-key="vdb_pk_…">` configures every picker on the page.
@@ -40,7 +40,7 @@ Each attribute is the `attach()` option of the same meaning (see [Options](#opti
 | `data-year` | `year` | present: add the model-year step |
 | `data-search` | `search` | present: searchable combobox |
 | `data-logos` | `logos` | present: make logos (search mode, needs a key) |
-| `data-locale` | `locale` | `en` or `es`: default labels, placeholders and the credit line |
+| `data-locale` | `locale` | `en`, `es`, `de`, `fr`, `it`, `pt`, `pl` or `nl`: default labels, placeholders and the credit line |
 | `data-values` | `values` | `slug` (default) or `name` |
 | `data-include-other` | `includeOther` | present: the "Other / not listed" row |
 | `data-other-label` | `otherLabel` | its text |
@@ -61,7 +61,7 @@ A boolean attribute is on when present and off when it is absent or `"false"`.
 </div>
 ```
 
-**Styling.** The element gets the class `vdb-picker` and each built field (label and select) is wrapped in `<div class="vdb-field">`; no stylesheet is injected, so your page's CSS styles them. Ids are unique per picker, so several pickers can share a page.
+**Styling.** The element gets the class `vdb-picker` and each built field (label and select) is wrapped in `<div class="vdb-field">`; no stylesheet is injected, so your page's CSS styles them (the search list and the credit line also read a few CSS custom properties, see [Theming](#theming)). Ids are unique per picker, so several pickers can share a page.
 
 **Pages that add pickers later** (single-page apps, Turbo): call `VehiclesDropdown.autoInit(root)` after inserting the element; it mounts what is new under `root` (default: the document) and never mounts an element twice. It returns the new instances; `instance.destroy()` removes what the widget built, after which the element can be mounted again. The ES module build (`import`) never mounts on import: call `autoInit()` yourself. Only the `<script>` build mounts by itself.
 
@@ -73,7 +73,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -93,6 +93,10 @@ VehiclesDropdown.attach({ source: "dataset", make: "#make", model: "#model", kin
 
 `source: "dataset"` reads the open VehiclesDB release file, [`dist/vehicles.json`](https://github.com/vehiclesdb/vehiclesdb) (CC-BY 4.0), from jsDelivr: the same file the Ruby gem and the SDKs read. It is one request per page (about 0.6 MB compressed, shared by every widget on the page), and makes and models are then filtered in the browser, with no request per make. Pin a release with `version: "2026.11.2"` (default `"latest"`), serve your own copy with `datasetUrl`, or pass the parsed file (or a subset of it in the same shape, such as your server's list of one country's cars) as `data`, which makes no request at all. The Ruby gem writes that subset for you: `Vehicles.dataset_slice(kind: :car, country: :es)` (vehicles 0.9.2+) is Spain's cars in the file's shape, about 300 KB of JSON and 50 KB gzipped (see the Rails recipe below). Logos need an API key, so keyless pages show the letter chip. `topMakes` is API-only.
 
+#### Keeping the data current
+
+The default, `version: "latest"`, follows the newest release, so new models and fixes reach your page the month they ship. A pinned release (`version: "2026.10.3"`, or a `datasetUrl` at `@v2026.10.3`) never changes. Releases are named `YYYY.MM.PATCH`, so when a pinned release is more than two months old the widget logs one `console.info` per page saying how old it is (no request is made for it, and visitors see nothing). Drop `version` (or point `datasetUrl` at `@latest`) to stay current; pin only when you re-test each upgrade yourself.
+
 ### npm
 
 ```bash
@@ -107,6 +111,14 @@ VehiclesDropdown.attach({ key: "vdb_pk_your_key", make: "#make", model: "#model"
 
 `import` loads `make-model-dropdown.mjs`, a self-contained ES module (no imports of its own); `require` and `<script>` load the UMD file `make-model-dropdown.js`.
 
+A minified copy of the `<script>` build, `make-model-dropdown.min.js` (same code and behaviour), is published next to it:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1/make-model-dropdown.min.js" defer></script>
+```
+
+The plain URL (`…/make-model-dropdown@0.5.1`) still serves the readable `make-model-dropdown.js`.
+
 ### Rails (importmap + Stimulus)
 
 ```bash
@@ -116,7 +128,7 @@ bin/importmap pin make-model-dropdown
 or pin the ES module from the CDN in `config/importmap.rb`:
 
 ```ruby
-pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.0/make-model-dropdown.mjs"
+pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1/make-model-dropdown.mjs"
 ```
 
 ```js
@@ -211,7 +223,7 @@ VehiclesDropdown.attach({
   search: true,            // searchable combobox instead of a plain select
   logos: true,             // make logos in the list (search mode; free key feature)
 
-  locale: "en",            // "en" (default) or "es": default wording for the strings below
+  locale: "en",            // "en" (default), "es", "de", "fr", "it", "pt", "pl", "nl": default wording for the strings below
   placeholderMake: "Make",
   placeholderModel: "Model",
   placeholderYear: "Year",
@@ -235,7 +247,7 @@ VehiclesDropdown.attach({ key: "vdb_pk_your_key", make: "#make", model: "#model"
 
 Picking a model fills the year select from that model's span, newest first (most bookings are for recent cars); changing the make clears model and year together. `onChange` then reports `{ make, model, year }`, where `year` is a number, `null` when nothing is picked, or `"other"` for the `includeOther` escape hatch, exactly like make and model. Without `year`, nothing changes: the payload stays `{ make, model }`.
 
-The years are register years, not production years: the span runs from the first to the latest year the official registers have the model on record, which can differ from the factory's own dates.
+The years are register years, not production years: the span runs from the first to the latest year the official registers have the model on record, which can differ from the factory's own dates. In dataset mode the span is the release file's `registration_years` (releases 2026.11.3 and later), handled exactly like the API's `years_on_record`; a model without it, or an older release, takes `yearFallback`.
 
 About one model in eight has no span on record (and an "Other / not listed" model never has one). `yearFallback` decides what those models get:
 
@@ -281,6 +293,25 @@ With `logos: true` (in search mode) each make renders its badge next to its name
 
 The combobox input inherits your `<select>`'s CSS classes, so it dresses like the rest of your form with no extra styling.
 
+### Theming
+
+No stylesheet is injected. The few inline styles the widget sets read a CSS custom property first, with today's look as the fallback, so nothing changes unless you set one (on the picker, or on `:root`):
+
+| Property | Default | Styles |
+|---|---|---|
+| `--vdb-list-bg` | `#fff` | the search list's background |
+| `--vdb-list-color` | `inherit` | its text colour |
+| `--vdb-list-border` | `1px solid #e5e7eb` | its border |
+| `--vdb-list-highlight-bg` | `#f3f4f6` | the active row |
+| `--vdb-list-max-height` | `16rem` | its height before it scrolls |
+| `--vdb-list-z-index` | `20` | its stacking order |
+| `--vdb-credit-font-size` | `.75rem` | the credit line's size |
+| `--vdb-credit-color` | `#6b7280` | the credit line's colour (its links inherit it) |
+
+```css
+.vdb-picker { --vdb-list-bg: #111827; --vdb-list-color: #f9fafb; --vdb-list-highlight-bg: #374151; }
+```
+
 ### Popularity, availability, kinds
 
 The data is the point. Every model carries a global popularity decile from real registration counts (`order: "popular"` puts the Golf first, not the 412), a per-country availability record (`country: "de"` drops what Germany has never registered), and a kind: `kind: "motorcycle"` gives you a motorbike picker with displacement-level names ("CBR600RR", not "CBR"), because that is how riders and registers both speak; `kind: "truck"` or `kind: "van"` gives fleet and logistics forms the commercial-vehicle picker they never had; `kind: "bus"` and `kind: "moped"` round out the six.
@@ -294,16 +325,20 @@ The data is the point. Every model carries a global popularity decile from real 
 
 The vehicle identity data is [CC-BY 4.0](https://vehiclesdb.com/attribution) — free for anything, with visible credit. The widget renders the credit line for you; leave `attribution: true` and you are compliant without reading a license. Paid plans can waive display attribution.
 
-The line reads "Vehicle data by VehiclesDB (CC-BY 4.0)", with links to the picker's page on vehiclesdb.com (`https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit`, tagged so we can count visits from the credit; nothing about your site or your visitors is sent) and to the licence. `locale: "es"` switches it, and the widget's own strings, to Spanish:
+The line reads "Vehicle data by VehiclesDB (CC-BY 4.0)", with links to the picker's page on vehiclesdb.com (`https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit`, tagged so we can count visits from the credit; nothing about your site or your visitors is sent) and to the licence. `locale` switches it, and the widget's own strings, to another language:
 
-| | `"en"` (default) | `"es"` |
-|---|---|---|
-| credit line | Vehicle data by VehiclesDB (CC-BY 4.0) | Datos de vehículos de VehiclesDB (CC-BY 4.0) |
-| `placeholderMake` / `placeholderModel` / `placeholderYear` | Make / Model / Year | Marca / Modelo / Año |
-| `otherLabel` | Other / not listed | Otro / no está en la lista |
-| `requiredMessage` | Please select a vehicle make. | Selecciona la marca del vehículo. |
+| `locale` | credit line | `placeholderMake` / `placeholderModel` / `placeholderYear` | `otherLabel` | `requiredMessage` |
+|---|---|---|---|---|
+| `"en"` (default) | Vehicle data by VehiclesDB (CC-BY 4.0) | Make / Model / Year | Other / not listed | Please select a vehicle make. |
+| `"es"` | Datos de vehículos de VehiclesDB (CC-BY 4.0) | Marca / Modelo / Año | Otro / no está en la lista | Selecciona la marca del vehículo. |
+| `"de"` | Fahrzeugdaten von VehiclesDB (CC-BY 4.0) | Marke / Modell / Baujahr | Andere / nicht aufgeführt | Bitte wählen Sie die Fahrzeugmarke aus. |
+| `"fr"` | Données véhicules fournies par VehiclesDB (CC-BY 4.0) | Marque / Modèle / Année | Autre / non répertorié | Veuillez sélectionner la marque du véhicule. |
+| `"it"` | Dati sui veicoli forniti da VehiclesDB (CC-BY 4.0) | Marca / Modello / Anno | Altro / non in elenco | Selezionare la marca del veicolo. |
+| `"pt"` | Dados de veículos fornecidos por VehiclesDB (CC-BY 4.0) | Marca / Modelo / Ano | Outro / não listado | Selecione a marca do veículo. |
+| `"pl"` | Dane o pojazdach: VehiclesDB (CC-BY 4.0) | Marka / Model / Rok | Inne / brak na liście | Proszę wybrać markę pojazdu. |
+| `"nl"` | Voertuiggegevens van VehiclesDB (CC-BY 4.0) | Merk / Model / Bouwjaar | Anders / niet vermeld | Selecteer het merk van het voertuig. |
 
-Region tags work (`"es-ES"` is `"es"`); an unknown locale falls back to English with a warning. Any option you pass yourself wins over the locale's default.
+Region tags work (`"es-ES"` is `"es"`, `"de-AT"` is `"de"`, `"pt-BR"` is `"pt"`); an unknown locale falls back to English with a warning. Any option you pass yourself wins over the locale's default.
 
 For other wording, `attributionText` is a template with two required slots: `{source}` (the VehiclesDB link) and `{license}` (the CC-BY 4.0 link), e.g. `"Fuente de datos: {source}, licencia {license}"`. The template is plain text, never HTML. One that drops either slot is ignored, with a warning, and the locale's line is shown instead: the credit can be translated but not removed.
 
@@ -320,7 +355,7 @@ npm test
 
 The test suite runs the published UMD artifact in a real DOM implementation and covers the one-tag install (attributes, built and existing fields, several pickers, the script tag), dependent loading, the year step and its fallbacks, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, object-URL cleanup, dataset mode, stored-value preservation, the id field and the ES module build.
 
-`make-model-dropdown.mjs` is generated from `make-model-dropdown.js` (the UMD source): after editing the source, run `npm run build:esm`. CI and `npm publish` refuse a stale copy.
+`make-model-dropdown.mjs` (the ES module) and `make-model-dropdown.min.js` (minified with terser, a devDependency only) are generated from `make-model-dropdown.js` (the UMD source): after editing the source, run `npm run build`. CI and `npm publish` refuse a stale copy of either.
 
 RESOLUTION conformance runs the dataset's `conformance/resolve.json` through the widget (CI does this against a pinned release):
 
@@ -334,6 +369,6 @@ MIT for this library. Data: identity layer CC-BY 4.0, enrichment proprietary —
 
 ## Releasing (maintainers)
 
-1. Bump `version` in `package.json` AND the `version:` string in `make-model-dropdown.js`, keep them equal, then `npm run build:esm`. Update the `@x.y.z` pins in this README.
+1. Bump `version` in `package.json` AND the `version:` string in `make-model-dropdown.js`, keep them equal, then `npm run build`. Update the `@x.y.z` pins in this README.
 2. Re-vendor the dist into the website and verify the two files are byte-for-byte identical. The website's system test drives that copy against the real API, so a broken dist fails its CI.
 3. `npm publish` (owner ritual, like gem releases).

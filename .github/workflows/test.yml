@@ -27,6 +27,8 @@ jobs:
       - run: npm ci
       - name: The ES module build matches the UMD source
         run: node scripts/build-esm.js --check
+      - name: The minified build matches the UMD source
+        run: node scripts/build-min.js --check
       - run: npm test
 
   conformance:

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.1
+
+- **Old-data notice.** In dataset mode, a pinned release (`version: "2026.08.1"`, or a `datasetUrl` at `@v2026.08.1`) more than two months older than today logs one `console.info` per page with its age and how to stay current (omit `version`, or use `@latest`). Releases are named `YYYY.MM.PATCH`, so no request is made; nothing is shown to visitors; `latest`, no version and embedded `data` never log it.
+- **Dataset-mode years.** The year step reads the release file's `registration_years` (dataset 2026.11.3+) exactly as API mode reads `years_on_record`; models without it (and older releases) keep `yearFallback`. Before, keyless pickers always offered the last 40 years.
+- **Six more locales:** `de`, `fr`, `it`, `pt`, `pl`, `nl` for the placeholders and labels, the Other row, the required-make message and the credit line (`VehiclesDB` and `CC-BY 4.0` stay as they are). Region tags normalise as before (`"de-AT"` is `"de"`).
+- **Minified build** `make-model-dropdown.min.js`, built from the source with terser (a devDependency; the package still has no runtime dependencies). CI and `prepublishOnly` refuse a stale copy. The default CDN URL still serves `make-model-dropdown.js`.
+- **Theming hooks.** The search list's background, text colour, border, highlight, max-height and z-index, and the credit line's size and colour, read CSS custom properties (`--vdb-list-bg`, …, `--vdb-credit-color`) with the previous values as fallbacks, so nothing changes by default. Still no injected stylesheet.
+
 ## 0.5.0
 
 - **One tag: install with no inline script.** The `<script>` build now mounts a picker in every element with `data-vehiclesdb-picker`, once when it runs and again on `DOMContentLoaded` if the page is still parsing. Options come from `data-*` attributes on the element, then on the script tag: `data-key`, `data-source`, `data-kind`, `data-country`, `data-order`, `data-top-makes`, `data-year`, `data-search`, `data-logos`, `data-locale`, `data-values`, `data-include-other`, `data-other-label`, `data-placeholder-make`/`-model`/`-year`, `data-name-make`/`-model`/`-year`, `data-id-name`, `data-required`, and `data-attribution="false"` (the existing `attribution: false`, paid plans only). Each maps to the `attach()` option of the same meaning; nothing new is configurable.
