@@ -1,8 +1,16 @@
 {
   "name": "make-model-dropdown",
-  "version": "0.5.1",
-  "description": "Car make and model dropdown for any web page. A dependent make/model picker with vehicle data from VehiclesDB: live from the API with a publishable key, or keyless from the open dataset. every make and model, cars and motorcycles to trucks and buses, from official national vehicle registers. Zero dependencies.",
+  "version": "0.6.0",
+  "description": "Year, make and model dropdown for cars, motorcycles, vans and trucks: a dependency-free vehicle selector (YMM) on open data from official registers.",
   "keywords": [
+    "year-make-model",
+    "year make model",
+    "ymm",
+    "vehicle-selector",
+    "car-make-model",
+    "make-model-year",
+    "vehicle-dropdown",
+    "car-dropdown",
     "car make model dropdown",
     "motorcycle make model dropdown",
     "motorbike dropdown",

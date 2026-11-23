@@ -1,5 +1,7 @@
 # Car, motorcycle and truck make and model dropdown
 
+Year, make and model dropdown for cars, motorcycles, vans and trucks: a dependency-free vehicle selector (YMM) on open data from official registers.
+
 > **Get your free key, the integration guide and the credit snippet at [vehiclesdb.com](https://vehiclesdb.com/users/sign_up?for=picker&cta=readme_make_model_dropdown)**
 
 **The make/model picker you stopped hand-maintaining.** `make-model-dropdown` turns two `<select>` elements into a dependent make → model dropdown, populated live from the [VehiclesDB API](https://vehiclesdb.com/api) or, with no API key at all, from the open VehiclesDB dataset: **every make and model in the dataset** (live counts on [vehiclesdb.com/makes](https://vehiclesdb.com/makes)), six vehicle kinds — cars, motorcycles (motorbikes), mopeds, vans, trucks and buses — reconciled from official national vehicle registers and refreshed monthly. One `kind` option turns the same widget into a car picker, a motorcycle picker or a truck picker.
@@ -14,7 +16,7 @@ Paste this where the picker should appear. No account, no key, no script of your
 
 ```html
 <div data-vehiclesdb-picker data-kind="car"></div>
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.6.0" defer></script>
 ```
 
 The script finds every element with `data-vehiclesdb-picker`, builds a labelled make `<select>` and model `<select>` inside it (named `make` and `model`, so they submit with the surrounding form), and fills them from the open dataset (one request of about 0.6 MB compressed, shared by every picker on the page). The credit line goes under the last field.
@@ -24,7 +26,7 @@ With a free key from [vehiclesdb.com](https://vehiclesdb.com/users/sign_up?for=p
 ```html
 <div data-vehiclesdb-picker data-key="vdb_pk_your_key" data-kind="car" data-country="es"
      data-year data-search data-logos data-id-name="vehiclesdb_id"></div>
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.6.0" defer></script>
 ```
 
 Each attribute is the `attach()` option of the same meaning (see [Options](#options)). An attribute missing on the element is read from the `<script>` tag, so `<script src=… data-key="vdb_pk_…">` configures every picker on the page.
@@ -38,21 +40,22 @@ Each attribute is the `attach()` option of the same meaning (see [Options](#opti
 | `data-order` | `order` | `popular` (default) or `alphabetical` |
 | `data-top-makes` | `topMakes` | API only |
 | `data-year` | `year` | present: add the model-year step |
+| `data-generation` | `generation` | present: add the generation step (API key on a plan with full records; hidden otherwise, see [Generation](#generation)) |
 | `data-search` | `search` | present: searchable combobox |
 | `data-logos` | `logos` | present: make logos (search mode, needs a key) |
 | `data-locale` | `locale` | `en`, `es`, `de`, `fr`, `it`, `pt`, `pl` or `nl`: default labels, placeholders and the credit line |
 | `data-values` | `values` | `slug` (default) or `name` |
 | `data-include-other` | `includeOther` | present: the "Other / not listed" row |
 | `data-other-label` | `otherLabel` | its text |
-| `data-placeholder-make`, `data-placeholder-model`, `data-placeholder-year` | `placeholderMake`, … | also the built fields' labels |
-| `data-name-make`, `data-name-model`, `data-name-year` | | the fields' `name`s (default `make`, `model`, `year`) |
+| `data-placeholder-make`, `data-placeholder-model`, `data-placeholder-year`, `data-placeholder-generation` | `placeholderMake`, … | also the built fields' labels |
+| `data-name-make`, `data-name-model`, `data-name-year`, `data-name-generation` | | the fields' `name`s (default `make`, `model`, `year`, `generation`) |
 | `data-id-name` | `idInput` | adds a hidden input with this name, kept filled with `kind/make/model` |
 | `data-required` | | marks the built fields `required` |
 | `data-attribution="false"` | `attribution: false` | paid plans only, as with `attach()`; free use keeps the credit line |
 
 A boolean attribute is on when present and off when it is absent or `"false"`.
 
-**Your own fields.** If the element already holds selects marked `data-make`, `data-model` and (optionally) `data-year`, and an input marked `data-id`, the widget uses those instead of building its own, so your labels, classes and server-rendered values stay as they are:
+**Your own fields.** If the element already holds selects marked `data-make`, `data-model` and (optionally) `data-year` and `data-generation`, and an input marked `data-id`, the widget uses those instead of building its own, so your labels, classes and server-rendered values stay as they are:
 
 ```html
 <div data-vehiclesdb-picker data-kind="car">
@@ -61,7 +64,7 @@ A boolean attribute is on when present and off when it is absent or `"false"`.
 </div>
 ```
 
-**Styling.** The element gets the class `vdb-picker` and each built field (label and select) is wrapped in `<div class="vdb-field">`; no stylesheet is injected, so your page's CSS styles them (the search list and the credit line also read a few CSS custom properties, see [Theming](#theming)). Ids are unique per picker, so several pickers can share a page.
+**Styling.** The element gets the class `vdb-picker` and each built field (label and select) is wrapped in `<div class="vdb-field" data-vdb-field="make">` (`model`, `year`, `generation`); no stylesheet is injected, so your page's CSS styles them (the search list and the credit line also read a few CSS custom properties, see [Theming](#theming)). Ids are unique per picker, so several pickers can share a page.
 
 **Pages that add pickers later** (single-page apps, Turbo): call `VehiclesDropdown.autoInit(root)` after inserting the element; it mounts what is new under `root` (default: the document) and never mounts an element twice. It returns the new instances; `instance.destroy()` removes what the widget built, after which the element can be mounted again. The ES module build (`import`) never mounts on import: call `autoInit()` yourself. Only the `<script>` build mounts by itself.
 
@@ -73,7 +76,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.6.0"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -114,10 +117,10 @@ VehiclesDropdown.attach({ key: "vdb_pk_your_key", make: "#make", model: "#model"
 A minified copy of the `<script>` build, `make-model-dropdown.min.js` (same code and behaviour), is published next to it:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1/make-model-dropdown.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.6.0/make-model-dropdown.min.js" defer></script>
 ```
 
-The plain URL (`…/make-model-dropdown@0.5.1`) still serves the readable `make-model-dropdown.js`.
+The plain URL (`…/make-model-dropdown@0.6.0`) still serves the readable `make-model-dropdown.js`.
 
 ### Rails (importmap + Stimulus)
 
@@ -128,7 +131,7 @@ bin/importmap pin make-model-dropdown
 or pin the ES module from the CDN in `config/importmap.rb`:
 
 ```ruby
-pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.5.1/make-model-dropdown.mjs"
+pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.6.0/make-model-dropdown.mjs"
 ```
 
 ```js
@@ -199,6 +202,7 @@ VehiclesDropdown.attach({
   make: "#make",           // required — <select> element or selector
   model: "#model",         // optional — the dependent model <select>
   year: "#year",           // optional — the model-year <select> (needs `model`)
+  generation: "#generation", // optional — the generation <select> (needs `model`; API key with full records)
   idInput: "#vehicle_id",  // optional — an <input> kept filled with the canonical id (needs `model`)
 
   source: "api",           // "api" (default, needs `key`) or "dataset" (the open file, no key)
@@ -213,6 +217,7 @@ VehiclesDropdown.attach({
   initialMake: "audi",     // preselect a make on load (slug, name or alias: "VW", "citroen")
   initialModel: "a3",      // preselect a model once its make's models load (see "Matching")
   initialYear: 2019,       // preselect a year once its model's years fill
+  initialGeneration: "a3-8v", // preselect a generation (id or name) once its model's generations load
   yearFallback: "range",   // a model with no register span: "range" (default) or "none"
   values: "slug",          // option values: "slug" (default) or "name"
   includeOther: true,      // append "Other / not listed" — pickers should never dead-end (Other make → Other model)
@@ -227,15 +232,16 @@ VehiclesDropdown.attach({
   placeholderMake: "Make",
   placeholderModel: "Model",
   placeholderYear: "Year",
+  placeholderGeneration: "Generation",
   attribution: true,       // the CC-BY credit line (keep it on — see below)
   attributionText: null,   // its wording, e.g. "Datos: {source} ({license})" (see Attribution)
 
-  onChange: ({ make, model, year, id }) => {}, // `year`/`id` only with a year select/idInput
+  onChange: ({ make, model, year, generation, id }) => {}, // `year`/`generation`/`id` only with those fields
   onError: (error) => {}
 })
 ```
 
-`attach` returns an instance with `.value` (`{ make, model }`, plus `year` with a year select and `id` with an idInput), `.setValue({ make, model, year, id })` (puts stored values on the selects by the rules below; returns a promise) and `.destroy()`. Every change also dispatches a bubbling `make-model-dropdown:change` event on the make select whose `detail` is `{ make, model, id }` (plus `year`), so a Stimulus action can listen for it.
+`attach` returns an instance with `.value` (`{ make, model }`, plus `year` with a year select, `generation` with a generation select and `id` with an idInput), `.setValue({ make, model, year, generation, id })` (puts stored values on the selects by the rules below; returns a promise) and `.destroy()`. Every change also dispatches a bubbling `make-model-dropdown:change` event on the make select whose `detail` is `{ make, model, id }` (plus `year` and `generation`), so a Stimulus action can listen for it.
 
 ### Model year
 
@@ -257,6 +263,27 @@ About one model in eight has no span on record (and an "Other / not listed" mode
 A year the host supplies (`initialYear`, or a server-rendered selected option in an edit form) is never dropped: if it falls outside the model's span it is added to the list in its place, selected, and logged once with `console.warn`.
 
 No extra request is made: the spans come with the model list the widget already loads.
+
+### Generation
+
+Generations ("Golf" → "Mk7 (2012–2020)") are part of the full records some VehiclesDB plans include, so this step needs an API key whose plan has them. Add a fourth `<select>`:
+
+```html
+<label for="generation">Generation</label>
+<select id="generation" name="generation"></select>
+```
+
+```js
+VehiclesDropdown.attach({ key: "vdb_pk_your_key", make: "#make", model: "#model", year: "#year", generation: "#generation" })
+```
+
+or `data-generation` on a one-tag picker. After a model is picked, the widget asks `GET /makes/{make}/models/{model}/generations` (with your key, and `kind` when the picker or the chosen model has one) and fills the select with the model's generations, oldest first, each labelled `"{name} ({start}–{end})"`: `"8Y (2020–)"` is still in production, `"4L (2005–?)"` has ended without a sourced last year, and a year that is not on record is left out rather than guessed. Option values are generation ids (`values: "name"` uses the names).
+
+**The step shows only when there is something to pick.** Most models have no generations on record yet, and keys without full records are not sent them, so the step is hidden until the chosen model has generations your key may see. It stays hidden for no model, Other or a stored model the list does not carry, an empty list, a `403 plan_required`, a `404`, a network error, and in dataset mode (the open dataset has no generations; no request is made). Hidden means the `hidden` attribute on the select, on its `<label for>`, on a `<label>` wrapped around it, and on an element you mark `data-vdb-field="generation"` (the one-tag picker marks its own field wrapper), plus `disabled` on the select: a hidden step is never required and is not submitted, so your form submits as before. The widget restores `required` as your page set it when the step shows, never un-hides or enables what your page hid or disabled itself, and nothing is shown to visitors. On a `403 plan_required` it logs one `console.info` per page naming the plan requirement and the response's `upgrade_url`, and asks no more for that key on that page. While the next model's list loads, a step already on screen stays visible and disabled, so the form does not jump.
+
+**Year and generation are independent selects.** If the visitor picks the year first, the widget preselects the generation whose span contains that year when exactly one does (a generation with an unknown bound that might contain it counts, so overlapping or uncertain spans preselect nothing); the visitor can change it, and a later year pick moves only a generation the widget chose. Picking a generation never changes the year.
+
+`.value`, `onChange` and the change event carry `generation`: `{ id, name, years: { start, end } }` (an unknown year is `null`), or `null`. `initialGeneration`, `setValue({ …, generation })` and a server-rendered selected option restore it by id or name; one the list does not carry is kept as given, like a stored model. The `idInput` keeps the model's `kind/make/model` id unchanged: store the generation id in its own column.
 
 ### Matching typed and stored names
 
@@ -353,7 +380,7 @@ npm ci
 npm test
 ```
 
-The test suite runs the published UMD artifact in a real DOM implementation and covers the one-tag install (attributes, built and existing fields, several pickers, the script tag), dependent loading, the year step and its fallbacks, credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, object-URL cleanup, dataset mode, stored-value preservation, the id field and the ES module build.
+The test suite runs the published UMD artifact in a real DOM implementation and covers the one-tag install (attributes, built and existing fields, several pickers, the script tag), dependent loading, the year step and its fallbacks, the generation step (every hidden case, the plan notice, year-first preselection), credential-scoped caches, combobox keyboard/blur behavior, labels, callback isolation, object-URL cleanup, dataset mode, stored-value preservation, the id field and the ES module build.
 
 `make-model-dropdown.mjs` (the ES module) and `make-model-dropdown.min.js` (minified with terser, a devDependency only) are generated from `make-model-dropdown.js` (the UMD source): after editing the source, run `npm run build`. CI and `npm publish` refuse a stale copy of either.
 
