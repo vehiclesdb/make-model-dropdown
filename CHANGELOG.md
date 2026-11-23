@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.2
+
+- **Logos only for makes that have one.** The API's make list carries `logo_url` (null when no logo is served); with `logos: true` the widget now requests a logo only for makes whose `logo_url` is set and shows the letter chip for the rest, with no request. A make list without the field (older API, a custom `apiBase`) is handled as before: every visible make is asked once. The logo is still fetched as the emblem variant, with the key in the Authorization header.
+- **The credit line's VehiclesDB link** now points at the picker's page, `https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit`, so visits from the credit can be counted. Nothing about the embedding site or its visitors is added. The wording, the licence link, `attribution: false` and `attributionText` are unchanged.
+
 ## 0.4.1
 
 - **A server-rendered slice as `data`.** The Ruby gem's `Vehicles.dataset_slice(kind:, country:)` (vehicles 0.9.2) writes one scope of the release (Spain's cars: ~300 KB, ~50 KB gzipped) in the `dist/vehicles.json` shape; passed as `data`, the widget makes no request and resolves stored values, forms, aliases and former ids against it as it would against the release. README: a Rails recipe that embeds it in the page. A test runs a gem-produced slice (`test/fixtures/gem-slice-car-ie.json`) through the widget.

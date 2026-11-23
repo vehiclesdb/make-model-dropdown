@@ -118,7 +118,7 @@ function creditOf(element) {
 }
 
 const REQUIRED_LINKS = [
-  ["VehiclesDB", "https://vehiclesdb.com/"],
+  ["VehiclesDB", "https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit"],
   ["CC-BY 4.0", "https://creativecommons.org/licenses/by/4.0/"]
 ]
 
@@ -130,6 +130,10 @@ test("the credit line links VehiclesDB and the licence, in English by default", 
   const credit = creditOf($(".vdb-attribution"))
   assert.equal(credit.text, "Vehicle data by VehiclesDB (CC-BY 4.0)")
   assert.deepEqual(credit.links, REQUIRED_LINKS)
+  for (const link of $(".vdb-attribution").querySelectorAll("a")) {
+    assert.equal(link.target, "_blank")
+    assert.equal(link.rel, "noopener")
+  }
 })
 
 test("locale: 'es' translates the credit line and the widget's own strings", async () => {
