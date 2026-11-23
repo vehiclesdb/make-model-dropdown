@@ -71,7 +71,10 @@
       attributionText: "Datos de vehículos de {source} ({license})"
     }
   }
-  const SOURCE_URL = "https://vehiclesdb.com"
+  // The credit's VehiclesDB link: the picker's own page, tagged so the site
+  // can count visits from the credit line. Nothing about the embedding page
+  // or its visitor is added.
+  const SOURCE_URL = "https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit"
   const LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/"
 
   // "es", "es-ES", "ES_es" → "es"; anything without a table → "en", warned.
@@ -964,10 +967,15 @@
       }
     }
 
-    async logoUrl(slug) {
+    async logoUrl(item) {
       // Logos are an API feature (they need the key); keyless dataset mode
       // renders the letter chip, which is always the fallback anyway.
       if (!this.config.key) return null
+      // The make list says which makes have a logo (`logo_url`, null when
+      // none is served): ask only for those. A list without the field
+      // (older API, a custom apiBase) is asked per make, as before.
+      if (item.logo_url === null) return null
+      const slug = item.slug
       const cacheKey = requestCacheKey(logoURL(this.api, slug), this.config.key)
       if (this.logoUrls.has(cacheKey)) return this.logoUrls.get(cacheKey)
 
@@ -1077,7 +1085,7 @@
         input.style.paddingLeft = "2.75rem"
         adornment.replaceChildren(chip(item.name))
         if (item.value) return // the escape-hatch row has no logo to fetch
-        self.logoUrl(item.slug).then((url) => {
+        self.logoUrl(item).then((url) => {
           if (!url || input.value !== item.name) return
           const img = document.createElement("img")
           img.src = url
@@ -1131,7 +1139,7 @@
         if (self.config.logos && !item.value) {
           const holder = chip(item.name)
           li.append(holder)
-          self.logoUrl(item.slug).then((url) => {
+          self.logoUrl(item).then((url) => {
             if (!url) return
             const img = document.createElement("img")
             img.src = url
@@ -1364,6 +1372,6 @@
     norm,
     findMake,
     findModel,
-    version: "0.4.1"
+    version: "0.4.2"
   }
 })

@@ -16,7 +16,7 @@ Get a free publishable API key at [vehiclesdb.com](https://vehiclesdb.com/settin
 <select id="make"></select>
 <select id="model"></select>
 
-<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.2"></script>
 <script>
   VehiclesDropdown.attach({
     key: "vdb_pk_your_key",
@@ -59,7 +59,7 @@ bin/importmap pin make-model-dropdown
 or pin the ES module from the CDN in `config/importmap.rb`:
 
 ```ruby
-pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.1/make-model-dropdown.mjs"
+pin "make-model-dropdown", to: "https://cdn.jsdelivr.net/npm/make-model-dropdown@0.4.2/make-model-dropdown.mjs"
 ```
 
 ```js
@@ -220,7 +220,7 @@ Some nameplates exist in several kinds (Iveco's Daily is a bus, a truck and a va
 
 ### Logos
 
-With `logos: true` (in search mode) each make renders its badge next to its name in the list, and the selected make's badge sits inside the input, the way a phone input wears its country flag. Coverage is partial by design and any marque can be withdrawn at any time, so the library always falls back to an initial-letter chip — build nothing that assumes a logo exists. Logos are third-party trademarks served for referential display; no license is granted with them.
+With `logos: true` (in search mode) each make renders its badge next to its name in the list, and the selected make's badge sits inside the input, the way a phone input wears its country flag. Coverage is partial by design and any marque can be withdrawn at any time, so the library always falls back to an initial-letter chip — build nothing that assumes a logo exists. The make list says which makes have a logo (`logo_url`, `null` for none), and the widget requests logos only for those. Logos are third-party trademarks served for referential display; no license is granted with them.
 
 The combobox input inherits your `<select>`'s CSS classes, so it dresses like the rest of your form with no extra styling.
 
@@ -237,7 +237,7 @@ The data is the point. Every model carries a global popularity decile from real 
 
 The vehicle identity data is [CC-BY 4.0](https://vehiclesdb.com/attribution) — free for anything, with visible credit. The widget renders the credit line for you; leave `attribution: true` and you are compliant without reading a license. Paid plans can waive display attribution.
 
-The line reads "Vehicle data by VehiclesDB (CC-BY 4.0)", with links to vehiclesdb.com and the licence. `locale: "es"` switches it, and the widget's own strings, to Spanish:
+The line reads "Vehicle data by VehiclesDB (CC-BY 4.0)", with links to the picker's page on vehiclesdb.com (`https://vehiclesdb.com/make-and-model-dropdown?utm_source=widget&utm_medium=credit`, tagged so we can count visits from the credit; nothing about your site or your visitors is sent) and to the licence. `locale: "es"` switches it, and the widget's own strings, to Spanish:
 
 | | `"en"` (default) | `"es"` |
 |---|---|---|

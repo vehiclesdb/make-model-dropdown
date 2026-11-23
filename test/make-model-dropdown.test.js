@@ -517,6 +517,54 @@ test("a failed logo fetch is a cached miss, not a retry storm", async () => {
   assert.equal(logoCalls, 1, `expected a single cached miss, saw ${logoCalls} requests`)
 })
 
+// The make list's `logo_url` (null when no logo is served) decides which
+// makes get a logo request; a list without the field gets the old blind one.
+async function logoRequestsFor(makes) {
+  const document = installDOM(`<select id="make"></select>`)
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {}
+  const base = apiBase("logo-url")
+  const logoPaths = []
+  const originalCreate = URL.createObjectURL
+  URL.createObjectURL = () => "blob:test"
+  global.fetch = async (url) => {
+    const { pathname, search } = new URL(url)
+    if (pathname.endsWith("/logo")) {
+      logoPaths.push(pathname + search)
+      return new Response(new Blob(["svg"]), { status: 200, headers: { "Content-Type": "image/svg+xml" } })
+    }
+    return jsonResponse({ makes })
+  }
+  try {
+    attach({ key: "logo-url-key", apiBase: base, make: "#make", logos: true, attribution: false })
+    await waitFor(() => document.querySelector("#make").options.length === makes.length + 1)
+    document.querySelector("[role=combobox]").dispatchEvent(new Event("focus"))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    return { logoPaths, chips: Array.from(document.querySelectorAll(".vdb-chip")).map((chip) => chip.textContent) }
+  } finally {
+    URL.createObjectURL = originalCreate
+  }
+}
+
+test("logo_url: null means no logo request, only the letter chip", async () => {
+  const { logoPaths, chips } = await logoRequestsFor([{ name: "Alpine", slug: "alpine", logo_url: null }])
+  assert.deepEqual(logoPaths, [])
+  assert.deepEqual(chips, ["A"])
+})
+
+test("logo_url: a URL means one emblem request for that make", async () => {
+  const { logoPaths, chips } = await logoRequestsFor([
+    { name: "Alfa Romeo", slug: "alfa-romeo", logo_url: "https://vehiclesdb.com/api/v1/makes/alfa-romeo/logo" },
+    { name: "Alpine", slug: "alpine", logo_url: null }
+  ])
+  assert.deepEqual(logoPaths, ["/api/v1/makes/alfa-romeo/logo?variant=emblem"])
+  assert.deepEqual(chips, ["A"], "Alfa Romeo's chip became its logo; Alpine keeps its chip")
+})
+
+test("no logo_url key (older API, custom apiBase): every make is asked, as before", async () => {
+  const { logoPaths } = await logoRequestsFor([{ name: "Audi", slug: "audi" }, { name: "BMW", slug: "bmw" }])
+  assert.deepEqual(logoPaths.sort(), ["/api/v1/makes/audi/logo?variant=emblem", "/api/v1/makes/bmw/logo?variant=emblem"])
+})
+
 test("focus plus Enter never overwrites a committed selection", async () => {
   const document = installDOM(`<select id="make"></select>`)
   dom.window.HTMLElement.prototype.scrollIntoView = () => {}
